@@ -6,12 +6,11 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
 from django.db.models import Q, QuerySet
 from django.utils.translation import gettext_lazy as _
-
 from waffle import switch_is_active
 
 from fdm.core.models import BaseModel, ByUserMixin, LockMixin, TimestampMixin
 from fdm.folders.signals import folder_datasets_count_updated
-from fdm.metadata.models import Metadata, MetadataTemplate
+from fdm.metadata.models import Metadata, MetadataTemplate, MetadataTemplateContainer
 from fdm.projects.models import Project, ProjectMembership
 from fdm.storages.models import DynamicStorage
 
@@ -93,6 +92,12 @@ class Folder(BaseModel, TimestampMixin, ByUserMixin, LockMixin):
         default=0,
     )
 
+    storage_size = models.BigIntegerField(
+        blank=False,
+        null=False,
+        default=0,
+    )
+
     metadata = GenericRelation(
         Metadata,
         content_type_field="assigned_to_content_type",
@@ -100,42 +105,83 @@ class Folder(BaseModel, TimestampMixin, ByUserMixin, LockMixin):
     )
 
     def update_members_count(self) -> None:
-        self.members_count = FolderPermission.objects.filter(
+        from fdm.websockets.consumers.handlers import send_model_changed_websocket_message
+
+        new_count = FolderPermission.objects.filter(
             folder=self,
         ).count()
 
-        self.save()
+        # We must use .update() to avoid running into a lock
+        Folder.objects.filter(pk=self.pk).update(members_count=new_count)
+        self.members_count = new_count
+
+        send_model_changed_websocket_message(self)
 
     def update_datasets_count(self) -> None:
         from fdm.uploads.models import UploadsDataset
+        from fdm.websockets.consumers.handlers import send_model_changed_websocket_message
 
-        self.datasets_count = UploadsDataset.objects.filter(
+        new_count = UploadsDataset.objects.filter(
             folder=self,
+            publication_date__isnull=False,
         ).count()
 
-        self.save()
+        # We must use .update() to avoid running into a lock
+        Folder.objects.filter(pk=self.pk).update(datasets_count=new_count)
+        self.datasets_count = new_count
+
+        send_model_changed_websocket_message(self)
 
         folder_datasets_count_updated.send(
             sender=self.__class__,
             instance=self,
         )
 
+    def update_storage_size(self) -> None:
+        from django.contrib.contenttypes.models import ContentType
+
+        from fdm.core.helpers import get_metadata_value_file_size
+        from fdm.metadata.models import Metadata
+        from fdm.uploads.models import UploadsVersion, UploadsVersionFile
+
+        total_size = 0
+        file_ids = list(
+            UploadsVersion.objects.filter(
+                dataset__folder=self.pk,
+            ).values_list("version_file_id", flat=True),
+        )
+
+        if file_ids:
+            metadata_values = Metadata.objects.filter(
+                assigned_to_content_type=ContentType.objects.get_for_model(UploadsVersionFile),
+                assigned_to_object_id__in=file_ids,
+                custom_key="FILE_SIZE",
+            ).values_list("value", flat=True)
+
+            for metadata_value in metadata_values:
+                total_size += get_metadata_value_file_size(metadata_value)
+
+        # We must use .update() to avoid running into a lock
+        Folder.objects.filter(pk=self.pk).update(storage_size=total_size)
+
     def update_metadata_templates_count(self) -> None:
-        # We are currently intentionally ignoring global templates
-        self.metadata_templates_count = MetadataTemplate.objects.filter(
+        # We are currently intentionally ignoring global templates and counting all metadata template versions
+        new_count = MetadataTemplate.objects.filter(
             # Metadata templates assigned to the folder itself
             Q(
-                assigned_to_content_type=self.get_content_type(),
-                assigned_to_object_id=self.pk,
+                metadata_template_container__assigned_to_content_type=self.get_content_type(),
+                metadata_template_container__assigned_to_object_id=self.pk,
             )
             # Metadata templates assigned to the project the folder is part of
             | Q(
-                assigned_to_content_type=self.project.get_content_type(),
-                assigned_to_object_id=self.project.pk,
+                metadata_template_container__assigned_to_content_type=self.project.get_content_type(),
+                metadata_template_container__assigned_to_object_id=self.project.pk,
             ),
         ).count()
 
-        self.save()
+        # We must use .update() to avoid running into a lock
+        Folder.objects.filter(pk=self.pk).update(metadata_templates_count=new_count)
+        self.metadata_templates_count = new_count
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -172,30 +218,70 @@ class Folder(BaseModel, TimestampMixin, ByUserMixin, LockMixin):
             )
 
     def clean(self):
+        from fdm.uploads.models import UploadsDataset
+
         if not isinstance(self.description, dict):
             raise ValidationError(_("Description contains invalid JSON data"))
 
-    def get_available_metadata_templates(self) -> QuerySet:
-        return (
-            MetadataTemplate.objects.filter(
-                # Metadata templates assigned to the folder itself
-                Q(
-                    assigned_to_content_type=self.get_content_type(),
-                    assigned_to_object_id=self.pk,
-                )
-                # Metadata templates assigned to the project the folder is part of
-                | Q(
-                    assigned_to_content_type=self.project.get_content_type(),
-                    assigned_to_object_id=self.project.pk,
-                )
-                # Globally available metadata templates
-                | Q(
-                    assigned_to_content_type__isnull=True,
-                    assigned_to_object_id__isnull=True,
-                ),
+        # Make sure that the metadata template container of the active metadata template is not already an active
+        # metadata template container elsewhere in the hierarchy of project > folder > dataset.
+        if self.metadata_template and (
+            (
+                self.project.metadata_template
+                and self.project.metadata_template.metadata_template_container
+                == self.metadata_template.metadata_template_container
             )
-            .order_by("name")
-            .all()
+            or UploadsDataset.objects.filter(
+                folder=self,
+                metadata_template__metadata_template_container=self.metadata_template.metadata_template_container,
+            ).exists()
+        ):
+            raise ValidationError(
+                _("A metadata template can only be actively assigned to one instance in the hierarchy at a time"),
+            )
+
+    def get_available_metadata_template_container(self) -> QuerySet:
+        return MetadataTemplateContainer.objects.filter(
+            # Metadata template container assigned to the folder itself
+            Q(
+                assigned_to_content_type=self.get_content_type(),
+                assigned_to_object_id=self.pk,
+            )
+            # Metadata template container assigned to the project the folder is part of
+            | Q(
+                assigned_to_content_type=self.project.get_content_type(),
+                assigned_to_object_id=self.project.pk,
+            )
+            # Globally available metadata template container
+            | Q(
+                assigned_to_content_type__isnull=True,
+                assigned_to_object_id__isnull=True,
+            ),
+        ).order_by(
+            "name",
+            "creation_date",
+        )
+
+    def get_available_metadata_templates(self) -> QuerySet:
+        return MetadataTemplate.objects.filter(
+            # Metadata templates assigned to the folder itself
+            Q(
+                metadata_template_container__assigned_to_content_type=self.get_content_type(),
+                metadata_template_container__assigned_to_object_id=self.pk,
+            )
+            # Metadata templates assigned to the project the folder is part of
+            | Q(
+                metadata_template_container__assigned_to_content_type=self.project.get_content_type(),
+                metadata_template_container__assigned_to_object_id=self.project.pk,
+            )
+            # Globally available metadata templates
+            | Q(
+                metadata_template_container__assigned_to_content_type__isnull=True,
+                metadata_template_container__assigned_to_object_id__isnull=True,
+            ),
+        ).order_by(
+            "metadata_template_container__name",
+            "creation_date",
         )
 
 
@@ -229,9 +315,11 @@ class FolderPermission(BaseModel):
     )
 
     class Meta:
-        unique_together = [
-            "folder",
-            "project_membership",
+        constraints = [
+            models.UniqueConstraint(
+                fields=["folder", "project_membership"],
+                name="unique_folder_project_membership",
+            ),
         ]
 
     def __str__(self):

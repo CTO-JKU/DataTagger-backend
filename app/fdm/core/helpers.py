@@ -1,5 +1,6 @@
 import logging
 
+from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
@@ -7,8 +8,6 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.test import RequestFactory
 from django.utils.translation import gettext_lazy as _
-
-from asgiref.sync import async_to_sync
 from django_rest_passwordreset.signals import reset_password_token_created
 from django_rest_passwordreset.views import generate_token_for_email
 from django_userforeignkey.request import set_current_request
@@ -21,10 +20,13 @@ __all__ = [
     "get_content_type_instance",
     "clean_assigned_content_type",
     "get_max_lock_time",
+    "get_metadata_value_file_size",
+    "format_storage_size",
     "set_request_for_user",
     "get_or_create_user",
     "send_websocket_message",
     "check_empty_value",
+    "version_diff_sort_key",
 ]
 
 
@@ -113,11 +115,48 @@ def get_max_lock_time() -> int:
         return settings.MAX_LOCK_TIME
 
 
+def get_metadata_value_file_size(metadata_value: any) -> int:
+    if not isinstance(metadata_value, dict):
+        return 0
+
+    raw_value = metadata_value.get("value")
+
+    if raw_value is None:
+        return 0
+
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def format_storage_size(storage_size: any) -> str:
+    try:
+        size = float(storage_size)
+    except (TypeError, ValueError):
+        size = 0
+
+    if size < 0:
+        size = 0
+
+    if size >= 1024**4:
+        return f"{size / (1024**4):.2f} TB"
+    if size >= 1024**3:
+        return f"{size / (1024**3):.2f} GB"
+    if size >= 1024**2:
+        return f"{size / (1024**2):.2f} MB"
+    if size >= 1024:
+        return f"{size / 1024:.2f} KB"
+
+    return f"{int(size)} Byte"
+
+
 def get_or_create_user(email: str, notification: bool = True) -> User:
+    email = email.lower()
     validate_email(email)
 
     try:
-        return User.objects.get(email=email)
+        return User.objects.get(email__iexact=email)
     except User.DoesNotExist:
         user = User.objects.create_user(
             username=email.split("@")[0],
@@ -148,3 +187,21 @@ def check_empty_value(value: any) -> any:
         return None
 
     return value
+
+
+def version_diff_sort_key(item):
+    new_value = item["new"]
+    old_value = item["old"]
+
+    # Criteria 1: new is not None, and old is None
+    if new_value is not None and old_value is None:
+        return 0, 0
+    # Criteria 2: new is not None, and old is not None
+    elif new_value is not None and old_value is not None:
+        return 1, 0
+    # Criteria 3: new is None, and old is not None
+    elif new_value is None and old_value is not None:
+        return 2, 0
+    # Default criteria
+    else:
+        return 3, 0

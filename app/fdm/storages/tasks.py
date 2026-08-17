@@ -2,10 +2,9 @@ import logging
 import os
 from typing import Tuple
 
+from celery import shared_task
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
-
-from celery import shared_task
 
 from fdm._celery import app
 from fdm.core.helpers import set_request_for_user

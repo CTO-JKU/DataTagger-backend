@@ -1,7 +1,5 @@
 # mod_passenger generic passenger_wsgi.py script, Python 3.4 version
 # Copyright (C) 2014 ANEXIA Internetdienstleistungs GmbH
-# Author: Stephan Peijnik <speijnik@anexia-it.com>
-#         Andreas Stocker <as@anexia.at>
 
 import datetime
 import os

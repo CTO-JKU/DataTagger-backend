@@ -1,10 +1,9 @@
+from channels.layers import get_channel_layer
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-
-from channels.layers import get_channel_layer
 from django_userforeignkey.models.fields import UserForeignKey
 from django_userforeignkey.request import get_current_user
 
@@ -172,7 +171,7 @@ class LockMixin(models.Model):
     def lock(self, save=True, auto_unlock=False) -> None:
         current_user = get_current_user()
 
-        self.locked_by = current_user if current_user.pk else None
+        self.locked_by = current_user if current_user and current_user.pk else None
         self.locked_at = timezone.now()
         self.locked = True
 
@@ -194,7 +193,7 @@ class LockMixin(models.Model):
                             "content_type": model_name,
                             "pk": str(self.pk),
                             "status": True,
-                            "user": current_user.email if current_user.is_authenticated else None,
+                            "user": current_user.email if current_user and current_user.is_authenticated else None,
                         },
                     },
                 )

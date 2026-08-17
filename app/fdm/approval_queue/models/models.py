@@ -52,4 +52,9 @@ class ApprovalQueue(BaseModel, TimestampMixin, ByUserMixin):
     class Meta:
         verbose_name = "Approval Queue Item"
         verbose_name_plural = "Approval Queue"
-        unique_together = ("content_type", "object_id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["content_type", "object_id"],
+                name="unique_approval_queue_content",
+            ),
+        ]

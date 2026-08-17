@@ -1,13 +1,14 @@
+import uuid
+
+from django.core.exceptions import ValidationError
 from django.db.models import Subquery
 from django.utils.translation import gettext_lazy as _
-
-from rest_framework import filters, mixins, status
+from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from rest_framework import filters, mixins, serializers, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-
-from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema
 
 from fdm.core.helpers import get_or_create_user
 from fdm.core.rest.base import BaseModelViewSet
@@ -23,7 +24,8 @@ from fdm.core.rest.permissions import (
 )
 from fdm.folders.models import Folder
 from fdm.folders.rest.serializers import FolderListSerializer
-from fdm.metadata.rest.serializers import MetadataTemplateSerializer
+from fdm.metadata.models import MetadataTemplateContainer
+from fdm.metadata.rest.serializers import MetadataTemplateContainerSerializer, MetadataTemplateSerializer
 from fdm.projects.models import *
 from fdm.projects.rest.filter import ProjectCreatorFilter, ProjectMembershipFilter
 from fdm.projects.rest.serializers import *
@@ -85,6 +87,11 @@ class ProjectViewSet(
         "partial_update": [IsAuthenticated, IsProjectAdmin],
         "destroy": [IsAuthenticated, IsProjectAdmin],
         "members": [IsAuthenticated, IsProjectAdmin],
+        "folders": [IsAuthenticated, IsProjectMember],
+        "metadata_template_container": [IsAuthenticated, IsProjectMember],
+        "metadata_templates": [IsAuthenticated, IsProjectMember],
+        "set_metadata_template_container_pool": [IsAuthenticated, IsProjectAdmin],
+        "get_metadata_template_container_pool": [IsAuthenticated, IsProjectMember],
     }
 
     def get_serializer_class(self):
@@ -110,6 +117,14 @@ class ProjectViewSet(
             OpenApiParameter("limit", int),
             OpenApiParameter("offset", int),
             OpenApiParameter("is_deletable", bool),
+            OpenApiParameter(
+                name="pk",
+                type=uuid.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                many=True,
+                description="Filter by up to 50 project IDs. Repeat the parameter for multiple IDs.",
+            ),
             OpenApiParameter(
                 name="created_by",
                 type=str,
@@ -164,7 +179,15 @@ class ProjectViewSet(
         },
     )
     def update(self, request, *args, **kwargs):
-        return super().update(request, *args, **kwargs)
+        try:
+            return super().update(request, *args, **kwargs)
+        except ValidationError as e:
+            return Response(
+                data={
+                    "error": "\n".join(e.messages),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @extend_schema(
         request=ProjectUpdatePayloadSerializer,
@@ -174,7 +197,16 @@ class ProjectViewSet(
     )
     def partial_update(self, request, *args, **kwargs):
         kwargs["partial"] = True
-        return super().update(request, *args, **kwargs)
+
+        try:
+            return super().update(request, *args, **kwargs)
+        except ValidationError as e:
+            return Response(
+                data={
+                    "error": "\n".join(e.messages),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @extend_schema(
         parameters=[
@@ -272,6 +304,29 @@ class ProjectViewSet(
 
     @extend_schema(
         responses={
+            200: MetadataTemplateContainerSerializer(many=True),
+        },
+        methods=["GET"],
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="metadata-template-container",
+        url_name="metadata-template-container",
+        filterset_class=None,
+        pagination_class=None,
+    )
+    def metadata_template_container(self, request, *args, **kwargs):
+        project = self.get_object()
+        metadata_template_container = project.get_available_metadata_template_container()
+
+        return Response(
+            data=MetadataTemplateContainerSerializer(metadata_template_container, many=True).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        responses={
             200: MetadataTemplateSerializer(many=True),
         },
         methods=["GET"],
@@ -290,6 +345,102 @@ class ProjectViewSet(
 
         return Response(
             data=MetadataTemplateSerializer(metadata_templates, many=True).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("ordering", exclude=True),
+            OpenApiParameter("search", exclude=True),
+        ],
+        request=inline_serializer(
+            name="ProjectMetadataTemplateContainerPoolActionSerializer",
+            fields={
+                "metadata_template_container": serializers.ListSerializer(
+                    child=serializers.UUIDField(),
+                    required=True,
+                ),
+            },
+        ),
+        responses={
+            200: None,
+        },
+        methods=["PUT"],
+    )
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("ordering", exclude=True),
+            OpenApiParameter("search", exclude=True),
+        ],
+        responses={
+            200: MetadataTemplateContainerSerializer(many=True),
+        },
+        methods=["GET"],
+    )
+    @action(
+        detail=True,
+        methods=[
+            "GET",
+            "PUT",
+        ],
+        url_path="metadata-template-container-pool",
+        url_name="metadata-template-container-pool",
+        filterset_class=None,
+        pagination_class=None,
+    )
+    def metadata_template_container_pool(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        if request.method == "PUT":
+            try:
+                metadata_template_container = [
+                    MetadataTemplateContainer.objects.get(pk=container_pk)
+                    for container_pk in request.data.get("metadata_template_container", [])
+                ]
+            except MetadataTemplateContainer.DoesNotExist:
+                return Response(
+                    data={
+                        "metadata_template_container": _(
+                            "At least one metadata template container provided does not exist.",
+                        ),
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            try:
+                instance.metadata_template_container.set([container for container in metadata_template_container])
+            except Exception as e:
+                return Response(
+                    data={
+                        "metadata_template_container": _(
+                            f"An error occurred while adding metadata template containers to the pool: {e}",
+                        ),
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            return Response(
+                status=status.HTTP_200_OK,
+            )
+
+        metadata_template_container = instance.metadata_template_container.all()
+
+        # Add the metadata template container of the project to the pool
+        if (
+            instance.metadata_template
+            and not metadata_template_container.filter(
+                pk=instance.metadata_template.metadata_template_container.pk,
+            ).exists()
+        ):
+            metadata_template_container |= MetadataTemplateContainer.objects.filter(
+                pk=instance.metadata_template.metadata_template_container.pk,
+            )
+
+        return Response(
+            data=MetadataTemplateContainerSerializer(
+                metadata_template_container.order_by("name"),
+                many=True,
+            ).data,
             status=status.HTTP_200_OK,
         )
 

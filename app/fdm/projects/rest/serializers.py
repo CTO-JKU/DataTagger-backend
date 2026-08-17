@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-
+from django.db.models import Sum
+from django_userforeignkey.request import get_current_user
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from fdm.core.helpers import get_or_create_user
@@ -11,9 +13,9 @@ from fdm.folders.rest.serializers import MetadataTemplateGetOrCreateSerializer, 
 from fdm.metadata.helpers import set_metadata_for_relation
 from fdm.metadata.rest.serializers import (
     MetadataPayloadSerializer,
-    MetadataTemplateMinimalSerializer,
     MetadataTemplateSerializer,
     MinimalMetadataSerializer,
+    MinimalMetadataTemplateSerializer,
 )
 from fdm.projects.models import *
 from fdm.users.rest.serializers import GetOrCreateUserSerializer, MinimalUserSerializer
@@ -193,9 +195,9 @@ class ProjectCreateSerializer(BaseModelWithByUserSerializer):
         # If the metadata template payload is of type dict then it has just been created and must also be linked
         # to the appropriate content type.
         if isinstance(metadata_template_payload, dict):
-            metadata_template.assigned_to_content_type = project.get_content_type()
-            metadata_template.assigned_to_object_id = project.pk
-            metadata_template.save()
+            metadata_template.metadata_template_container.assigned_to_content_type = project.get_content_type()
+            metadata_template.metadata_template_container.assigned_to_object_id = project.pk
+            metadata_template.metadata_template_container.save()
 
         return project
 
@@ -264,9 +266,9 @@ class ProjectUpdateSerializer(BaseModelWithByUserSerializer):
         # If the metadata template payload is of type dict then it has just been created and must also be linked
         # to the appropriate content type.
         if isinstance(metadata_template_payload, dict):
-            metadata_template.assigned_to_content_type = instance.get_content_type()
-            metadata_template.assigned_to_object_id = instance.pk
-            metadata_template.save()
+            metadata_template.metadata_template_container.assigned_to_content_type = instance.get_content_type()
+            metadata_template.metadata_template_container.assigned_to_object_id = instance.pk
+            metadata_template.metadata_template_container.save()
 
         return instance
 
@@ -275,8 +277,81 @@ class ProjectUpdateSerializer(BaseModelWithByUserSerializer):
         return super().update(request, *args, **kwargs)
 
 
-class ProjectListSerializer(BaseModelWithByUserSerializer):
-    metadata_template = MetadataTemplateMinimalSerializer(
+class ProjectDashboardSummarySerializerMixin(serializers.Serializer):
+    my_membership = serializers.SerializerMethodField()
+
+    folders_count = serializers.SerializerMethodField()
+
+    datasets_count = serializers.SerializerMethodField()
+
+    def _get_current_user(self):
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
+
+        if request_user and request_user.is_authenticated:
+            return request_user
+
+        current_user = get_current_user()
+
+        if current_user and current_user.is_authenticated:
+            return current_user
+
+        return None
+
+    def _get_visible_folders(self, project):
+        user = self._get_current_user()
+        queryset = project.folder.all()
+
+        if not user:
+            return queryset.none()
+
+        return queryset.filter(
+            folderpermission__project_membership__member=user.pk,
+        )
+
+    @extend_schema_field(
+        {
+            "type": "string",
+            "enum": [
+                "admin",
+                "member",
+            ],
+        },
+    )
+    def get_my_membership(self, project):
+        user = self._get_current_user()
+
+        if not user:
+            return None
+
+        membership = project.project_members.filter(
+            member=user,
+        ).first()
+
+        if not membership:
+            return None
+
+        if membership.is_project_admin:
+            return "admin"
+
+        return "member"
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_folders_count(self, project):
+        return self._get_visible_folders(project).count()
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_datasets_count(self, project):
+        return (
+            self._get_visible_folders(project).aggregate(
+                datasets_count=Sum("datasets_count"),
+            )["datasets_count"]
+            or 0
+        )
+
+
+class ProjectListSerializer(ProjectDashboardSummarySerializerMixin, BaseModelWithByUserSerializer):
+    metadata_template = MinimalMetadataTemplateSerializer(
         required=False,
         allow_null=True,
     )
@@ -289,10 +364,24 @@ class ProjectListSerializer(BaseModelWithByUserSerializer):
             "name",
             "metadata_template",
             "is_deletable",
+            "members_count",
+            "folders_count",
+            "datasets_count",
+            "metadata_templates_count",
+            "my_membership",
+        ]
+
+        read_only_fields = [
+            "is_deletable",
+            "members_count",
+            "folders_count",
+            "datasets_count",
+            "metadata_templates_count",
+            "my_membership",
         ]
 
 
-class ProjectSerializer(BaseModelWithByUserSerializer):
+class ProjectSerializer(ProjectDashboardSummarySerializerMixin, BaseModelWithByUserSerializer):
     metadata_template = MetadataTemplateSerializer(
         required=False,
         allow_null=True,
@@ -322,13 +411,18 @@ class ProjectSerializer(BaseModelWithByUserSerializer):
             "folders",
             "members_count",
             "folders_count",
+            "datasets_count",
             "metadata_templates_count",
+            "my_membership",
         ]
 
         read_only_fields = [
             "is_deletable",
             "members_count",
+            "folders_count",
+            "datasets_count",
             "metadata_templates_count",
+            "my_membership",
         ]
 
 

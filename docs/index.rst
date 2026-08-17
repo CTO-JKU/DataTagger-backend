@@ -7,6 +7,7 @@ Welcome to FDM's documentation!
 
    manual_docs/README
    manual_docs/code
+   manual_docs/search
    manual_docs/schema
 
 

@@ -4,13 +4,11 @@ from django.core.exceptions import ValidationError
 from django.http import HttpResponseRedirect
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-
-from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework_jwt.settings import api_settings
+from rest_framework_simplejwt.tokens import RefreshToken
 from waffle.mixins import WaffleSwitchMixin
 
 from fdm.core.helpers import get_or_create_user
@@ -19,9 +17,6 @@ from fdm.shibboleth.models.models import ShibbolethAuthCode
 from fdm.shibboleth.rest.serializers import ShibbolethStartSerializer
 
 User = get_user_model()
-
-jwt_payload_handler = api_settings.JWT_PAYLOAD_HANDLER
-jwt_encode_handler = api_settings.JWT_ENCODE_HANDLER
 
 
 def decode_shibboleth_attribute(attribute):
@@ -235,19 +230,20 @@ class ShibbolethViewSet(WaffleSwitchMixin, BaseGenericViewSet):
         self.set_can_create_projects(user, shib_headers)
 
         # Generate JWT token
-        payload = jwt_payload_handler(user)
-        token = jwt_encode_handler(payload)
+        refresh = RefreshToken.for_user(user)
+        token = str(refresh.access_token)
 
         response = HttpResponseRedirect(f"{settings.FRONTEND_WEB_URL}/auth-complete/{user.pk}")
 
         # Set the JWT token as a cookie
+        simple_jwt_settings = settings.SIMPLE_JWT
         response.set_cookie(
-            api_settings.JWT_AUTH_COOKIE,
+            simple_jwt_settings.get("AUTH_COOKIE", "token"),
             token,
-            max_age=api_settings.JWT_EXPIRATION_DELTA.total_seconds(),
-            httponly=True,
-            secure=api_settings.JWT_AUTH_COOKIE_SECURE,
-            samesite="Lax",
+            max_age=simple_jwt_settings["ACCESS_TOKEN_LIFETIME"].total_seconds(),
+            httponly=simple_jwt_settings.get("AUTH_COOKIE_HTTP_ONLY", True),
+            secure=simple_jwt_settings.get("AUTH_COOKIE_SECURE", False),
+            samesite=simple_jwt_settings.get("AUTH_COOKIE_SAMESITE", "Lax"),
         )
 
         ShibbolethAuthCode.cleanup()

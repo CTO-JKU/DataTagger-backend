@@ -1,8 +1,9 @@
+from adminsortable2.admin import SortableAdminMixin, SortableStackedInline
+from django import forms
 from django.contrib import admin
 
-from adminsortable2.admin import SortableAdminMixin, SortableStackedInline
-
-from fdm.faq.models import *
+from fdm.core.widgets import EasyMDEWidget
+from fdm.faq.models import FAQ, FAQCategory
 
 __all__ = [
     "FAQAdmin",
@@ -10,8 +11,18 @@ __all__ = [
 ]
 
 
+class FAQForm(forms.ModelForm):
+    class Meta:
+        model = FAQ
+        fields = "__all__"
+        widgets = {
+            "answer": EasyMDEWidget,
+        }
+
+
 @admin.register(FAQ)
 class FAQAdmin(SortableAdminMixin, admin.ModelAdmin):
+    form = FAQForm
     list_display = [
         "question",
         "category",
@@ -35,15 +46,26 @@ class FAQAdmin(SortableAdminMixin, admin.ModelAdmin):
     ]
 
     prepopulated_fields = {
-        "slug": ("question",),
+        "slug": [
+            "question",
+        ],
     }
+
+    class Media:
+        css = {
+            "screen": [
+                "cms/admin/custom.css",
+            ],
+        }
 
 
 class FAQStackedInline(SortableStackedInline):
     model = FAQ
 
     prepopulated_fields = {
-        "slug": ("question",),
+        "slug": [
+            "question",
+        ],
     }
 
 
@@ -70,5 +92,14 @@ class FAQCategoryAdmin(SortableAdminMixin, admin.ModelAdmin):
     ]
 
     prepopulated_fields = {
-        "slug": ("name",),
+        "slug": [
+            "name",
+        ],
     }
+
+    class Media:
+        css = {
+            "screen": [
+                "cms/admin/custom.css",
+            ],
+        }

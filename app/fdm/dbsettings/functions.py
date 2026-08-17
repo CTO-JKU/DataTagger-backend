@@ -57,7 +57,7 @@ class LazyDBSettings(LazyObject):
         self.__dict__.pop(name, None)
 
 
-def get_dbsettings_value(key: str, default: str = None) -> str:
+def get_dbsettings_value(key: str, default: any = None) -> str:
     try:
         return Setting.objects.get(key=key).value
     except Exception:

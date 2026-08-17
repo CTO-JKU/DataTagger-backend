@@ -1,6 +1,5 @@
-from rest_framework import mixins
-
 from django_userforeignkey.request import get_current_user
+from rest_framework import mixins
 
 from fdm.core.rest.base import BaseModelViewSet
 from fdm.dbsettings.models import *

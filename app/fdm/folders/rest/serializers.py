@@ -1,6 +1,5 @@
-from rest_framework import serializers
-
 from drf_spectacular.utils import extend_schema_field
+from rest_framework import serializers
 
 from fdm.core.rest.base import BaseModelSerializer
 from fdm.core.rest.serializers import BaseModelWithByUserSerializer
@@ -11,9 +10,9 @@ from fdm.metadata.helpers import create_metadata_template_for_object, set_metada
 from fdm.metadata.models import Metadata, MetadataField, MetadataTemplate
 from fdm.metadata.rest.serializers import (
     MetadataPayloadSerializer,
-    MetadataTemplateMinimalSerializer,
     MetadataTemplateSerializer,
     MinimalMetadataSerializer,
+    MinimalMetadataTemplateSerializer,
 )
 from fdm.projects.models import Project, ProjectMembership
 from fdm.storages.rest.serializers import StorageSerializer
@@ -118,6 +117,13 @@ class MinimalProjectSearchSerializer(BaseModelWithByUserSerializer):
                                     "oneOf": [
                                         {
                                             "type": "string",
+                                            "nullable": True,
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string",
+                                            },
                                             "nullable": True,
                                         },
                                         {
@@ -248,7 +254,7 @@ class FolderListSerializer(BaseModelWithByUserSerializer):
         allow_null=True,
     )
 
-    metadata_template = MetadataTemplateMinimalSerializer(
+    metadata_template = MinimalMetadataTemplateSerializer(
         required=False,
         allow_null=True,
     )
@@ -319,9 +325,9 @@ class FolderCreateSerializer(BaseModelWithByUserSerializer):
         # If the metadata template payload is of type dict then it has just been created and must also be linked
         # to the appropriate content type.
         if isinstance(metadata_template_payload, dict):
-            metadata_template.assigned_to_content_type = folder.get_content_type()
-            metadata_template.assigned_to_object_id = folder.pk
-            metadata_template.save()
+            metadata_template.metadata_template_container.assigned_to_content_type = folder.get_content_type()
+            metadata_template.metadata_template_container.assigned_to_object_id = folder.pk
+            metadata_template.metadata_template_container.save()
 
         return folder
 
@@ -371,9 +377,9 @@ class FolderUpdateSerializer(BaseModelWithByUserSerializer):
         # If the metadata template payload is of type dict then it has just been created and must also be linked
         # to the appropriate content type.
         if isinstance(metadata_template_payload, dict):
-            metadata_template.assigned_to_content_type = instance.get_content_type()
-            metadata_template.assigned_to_object_id = instance.pk
-            metadata_template.save()
+            metadata_template.metadata_template_container.assigned_to_content_type = instance.get_content_type()
+            metadata_template.metadata_template_container.assigned_to_object_id = instance.pk
+            metadata_template.metadata_template_container.save()
 
         return instance
 
@@ -384,6 +390,8 @@ class FolderUpdateSerializer(BaseModelWithByUserSerializer):
 
 class FolderSerializer(BaseModelWithByUserSerializer):
     project = MinimalProjectSearchSerializer()
+
+    storage = StorageSerializer()
 
     metadata_template = MetadataTemplateSerializer(
         required=False,

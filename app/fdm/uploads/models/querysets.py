@@ -1,5 +1,4 @@
 from django.db.models import Q
-
 from django_userforeignkey.request import get_current_user
 
 from fdm.core.models.querysets import BaseQuerySet
@@ -43,13 +42,17 @@ class UploadsDatasetQuerySet(BaseQuerySet):
                     folder__folderpermission__project_membership__member=user,
                 )
 
-            return (
-                self.filter(query)
-                .distinct()
-                .order_by(
-                    "name",
-                    "-creation_date",
+            datasets = self.filter(query)
+
+            if view_type == "list":
+                datasets = datasets.exclude(
+                    uploads_versions_count=0,
+                    locked=True,
                 )
+
+            return datasets.distinct().order_by(
+                "name",
+                "-creation_date",
             )
 
         return self.none()

@@ -1,5 +1,4 @@
 from django.db.models import Q
-
 from rest_framework import mixins
 
 from fdm.core.rest.base import BaseModelViewSet

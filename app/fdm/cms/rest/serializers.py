@@ -1,12 +1,10 @@
 import re
 
 from django.utils.safestring import mark_safe
-
 from rest_framework import serializers
 
-from martor.utils import markdownify
-
 from fdm.cms.models.models import Content
+from fdm.core.utils.markdown import render_markdown
 
 __all__ = [
     "ContentSerializer",
@@ -25,13 +23,13 @@ class ContentSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def get_text_de_html(obj):
-        return mark_safe(replace_newline_characters(markdownify(obj.text_de)))
+        return mark_safe(replace_newline_characters(render_markdown(obj.text_de)))
 
     text_en_html = serializers.SerializerMethodField()
 
     @staticmethod
     def get_text_en_html(obj):
-        return mark_safe(replace_newline_characters(markdownify(obj.text_en)))
+        return mark_safe(replace_newline_characters(render_markdown(obj.text_en)))
 
     class Meta:
         model = Content

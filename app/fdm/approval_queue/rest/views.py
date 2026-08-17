@@ -1,12 +1,10 @@
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-
+from django_userforeignkey.request import get_current_user
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-
-from django_userforeignkey.request import get_current_user
-from drf_spectacular.utils import extend_schema
 
 from fdm.approval_queue.models import ApprovalQueue
 from fdm.approval_queue.rest.serializers import ApprovalQueueSerializer

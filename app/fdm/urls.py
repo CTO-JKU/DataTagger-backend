@@ -18,7 +18,6 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path, re_path
-
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from fdm.core.utils.routers import get_api_router
@@ -41,8 +40,11 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     # Include apps
     path("", include("fdm.core.urls")),
+    path("", include("fdm.dashboard.urls")),
     path("", include("fdm.dbsettings.urls")),
+    path("", include("fdm.exports.urls")),
     path("", include("fdm.faq.urls")),
+    path("", include("fdm.file_parser.urls")),
     path("", include("fdm.folders.urls")),
     path("", include("fdm.metadata.urls")),
     path("", include("fdm.projects.urls")),
@@ -79,8 +81,6 @@ urlpatterns = [
     path("api/schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     # Waffle (feature flipper) - adds <url>>/waffle_status route - provides statuses of all switches, flags and samples
     path("", include("waffle.urls")),
-    # Markdown Editor
-    path("martor/", include("martor.urls")),
 ]
 
 # serve media root for uploaded files

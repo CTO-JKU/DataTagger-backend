@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from fdm.core.helpers import format_storage_size
 from fdm.folders.models import Folder, FolderPermission
 
 __all__ = [
@@ -15,6 +16,7 @@ class FolderAdmin(admin.ModelAdmin):
         "project",
         "storage",
         "created_by",
+        "storage_size_display",
         "datasets_count",
         "members_count",
         "metadata_templates_count",
@@ -43,7 +45,12 @@ class FolderAdmin(admin.ModelAdmin):
         "datasets_count",
         "members_count",
         "metadata_templates_count",
+        "storage_size_display",
     ]
+
+    @admin.display(ordering="storage_size", description="Storage size")
+    def storage_size_display(self, obj):
+        return format_storage_size(obj.storage_size)
 
 
 @admin.register(FolderPermission)

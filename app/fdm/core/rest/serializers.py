@@ -1,10 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.db import connection
-
-from rest_framework import fields, serializers
-
 from drf_spectacular.utils import extend_schema_field
-from rest_framework_jwt.serializers import JSONWebTokenSerializer as BaseJSONWebTokenSerializer
+from rest_framework import fields, serializers
 
 from fdm.core.helpers import get_content_type_for_object, get_content_type_instance
 from fdm.core.rest.base import BaseModelSerializer
@@ -21,6 +18,7 @@ __all__ = [
     "TokenResponseSerializer",
     "BaseModelWithByUserSerializer",
     "LockStatusSerializer",
+    "UploadsDatasetMetadataUpgradeStatusSerializer",
     "ContentTypeSerializer",
     "MetadataContentTypeSerializer",
     "MetadataContentTypePayloadSerializer",
@@ -69,11 +67,13 @@ METADATA_CONTENT_TYPES = get_metadata_content_type_enum_values()
 def get_metadata_template_content_type_enum_values() -> list[str]:
     from fdm.folders.models import Folder
     from fdm.projects.models import Project
+    from fdm.uploads.models import UploadsDataset
 
     return get_content_type_enum_values(
         [
             Folder,
             Project,
+            UploadsDataset,
         ],
     )
 
@@ -92,10 +92,12 @@ class UserResponseSerializer(UserSerializer):
     )
 
 
-class TokenResponseSerializer(BaseJSONWebTokenSerializer):
+class TokenResponseSerializer(serializers.Serializer):
     """
     Used only for OpenAPI generator
     """
+
+    token = serializers.CharField(read_only=True)
 
     user = UserResponseSerializer(
         read_only=True,
@@ -153,6 +155,16 @@ class LockStatusSerializer(serializers.Serializer):
     )
 
 
+class UploadsDatasetMetadataUpgradeStatusSerializer(serializers.Serializer):
+    has_upgradeable_metadata_templates = serializers.BooleanField(
+        read_only=True,
+    )
+
+    metadata_upgrade_status = serializers.CharField(
+        read_only=True,
+    )
+
+
 @extend_schema_field(
     {
         "oneOf": [
@@ -176,10 +188,13 @@ class ContentTypeSerializer(serializers.Field):
 
         from django.contrib.contenttypes.models import ContentType
 
-        if isinstance(data, int):
-            return ContentType.objects.get(pk=data)
-        elif isinstance(data, str):
-            return get_content_type_instance(data)
+        try:
+            if isinstance(data, int):
+                return ContentType.objects.get(pk=data)
+            elif isinstance(data, str):
+                return get_content_type_instance(data)
+        except (ContentType.DoesNotExist, ValueError) as e:
+            raise serializers.ValidationError(str(e))
 
         return None
 

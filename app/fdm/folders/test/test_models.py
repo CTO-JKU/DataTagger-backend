@@ -1,17 +1,23 @@
+import pytest
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import transaction
 from django.utils import timezone
-
-import pytest
 
 from fdm.core.helpers import set_request_for_user
 from fdm.folders.models import Folder, FolderPermission, get_default_folder_storage
 from fdm.metadata.enums import MetadataFieldType
 from fdm.metadata.helpers import set_metadata
-from fdm.metadata.models import MetadataField, MetadataTemplate
+from fdm.metadata.models import MetadataField, MetadataTemplate, MetadataTemplateContainer
 from fdm.projects.models import Project, ProjectMembership
-from fdm.uploads.models import UploadsDataset
+from fdm.uploads.models import UploadsDataset, UploadsVersion, UploadsVersionFile
+
+sample_file = SimpleUploadedFile(
+    "file.jpg",
+    b"",
+    content_type="image/jpg",
+)
 
 
 @pytest.mark.django_db
@@ -83,6 +89,103 @@ class TestFolderModel:
             folder.description = "string value"
             folder.save()
 
+    def test_update_storage_size(self, initial_users):
+        """
+        Ensure the folder storage size is updated correctly
+        """
+        folder_1 = self.project_1.folders.first()
+
+        uploads_dataset_1 = UploadsDataset.objects.create(
+            name="Dataset 1",
+            folder=folder_1,
+            publication_date=timezone.now(),
+            deletable_until_date=timezone.now() + timezone.timedelta(hours=1),
+        )
+
+        uploads_dataset_2 = UploadsDataset.objects.create(
+            name="Dataset 2",
+        )
+
+        uploads_version_file_1 = UploadsVersionFile.objects.create(
+            uploaded_file=sample_file,
+        )
+
+        uploads_version_file_2 = UploadsVersionFile.objects.create(
+            uploaded_file=sample_file,
+        )
+
+        uploads_version_file_3 = UploadsVersionFile.objects.create(
+            uploaded_file=sample_file,
+        )
+
+        UploadsVersion.objects.create(
+            dataset=uploads_dataset_1,
+            version_file=uploads_version_file_1,
+        )
+
+        UploadsVersion.objects.create(
+            dataset=uploads_dataset_1,
+            version_file=uploads_version_file_2,
+        )
+
+        UploadsVersion.objects.create(
+            dataset=uploads_dataset_2,
+            version_file=uploads_version_file_3,
+        )
+
+        file_size_1 = 123
+        set_metadata(
+            assigned_to_content_type=uploads_version_file_1.get_content_type(),
+            assigned_to_object_id=uploads_version_file_1.pk,
+            custom_key="FILE_SIZE",
+            value=file_size_1,
+        )
+
+        file_size_2 = 456
+        set_metadata(
+            assigned_to_content_type=uploads_version_file_2.get_content_type(),
+            assigned_to_object_id=uploads_version_file_2.pk,
+            custom_key="FILE_SIZE",
+            value=file_size_2,
+        )
+
+        file_size_3 = 789
+        set_metadata(
+            assigned_to_content_type=uploads_version_file_3.get_content_type(),
+            assigned_to_object_id=uploads_version_file_3.pk,
+            custom_key="FILE_SIZE",
+            value=file_size_3,
+        )
+
+        assert folder_1.storage_size == 0
+
+        folder_1.update_storage_size()
+        folder_1.refresh_from_db()
+        assert folder_1.storage_size == file_size_1 + file_size_2
+
+        user_1 = initial_users["user_1"]
+        assert user_1.storage_size == 0
+
+        user_1.update_storage_size()
+        user_1.refresh_from_db()
+        assert user_1.storage_size == file_size_1 + file_size_2 + file_size_3
+
+        uploads_dataset_1.delete()
+
+        folder_1.refresh_from_db()
+        assert folder_1.storage_size == 0
+
+        user_1.refresh_from_db()
+        assert user_1.storage_size == file_size_3
+
+        uploads_dataset_2.delete()
+
+        folder_1.refresh_from_db()
+        assert folder_1.storage_size == 0
+
+        user_1.refresh_from_db()
+        assert user_1.storage_size == 0
+
 
 @pytest.mark.django_db
 class TestFolderMetadataModel:
@@ -137,12 +240,17 @@ class TestFolderMetadataModel:
         """
         assert self.folder_1.get_available_metadata_templates().count() == 0
 
-        MetadataTemplate.objects.create(
-            name="Folder metadata template 1",
+        metadata_template_container_1 = MetadataTemplateContainer.objects.create(
+            name="Folder metadata template container 1",
             assigned_to_content_type=self.folder_1.get_content_type(),
             assigned_to_object_id=self.folder_1.pk,
         )
 
+        MetadataTemplate.objects.create(
+            metadata_template_container=metadata_template_container_1,
+        )
+
+        assert self.folder_1.get_available_metadata_template_container().count() == 1
         assert self.folder_1.get_available_metadata_templates().count() == 1
 
         folder_2 = Folder.objects.create(
@@ -150,38 +258,58 @@ class TestFolderMetadataModel:
             project=self.project_1,
         )
 
-        MetadataTemplate.objects.create(
-            name="Folder metadata template 2",
+        metadata_template_container_2 = MetadataTemplateContainer.objects.create(
+            name="Folder metadata template container 2",
             assigned_to_content_type=folder_2.get_content_type(),
             assigned_to_object_id=folder_2.pk,
         )
 
-        assert self.folder_1.get_available_metadata_templates().count() == 1
-
         MetadataTemplate.objects.create(
-            name="Project metadata template 1",
-            assigned_to_content_type=self.folder_1.project.get_content_type(),
-            assigned_to_object_id=self.folder_1.project.pk,
+            metadata_template_container=metadata_template_container_2,
         )
 
+        assert self.folder_1.get_available_metadata_template_container().count() == 1
+        assert self.folder_1.get_available_metadata_templates().count() == 1
+
+        metadata_template_container_3 = MetadataTemplateContainer.objects.create(
+            name="Project metadata template container 1",
+            assigned_to_content_type=self.project_1.get_content_type(),
+            assigned_to_object_id=self.project_1.pk,
+        )
+
+        MetadataTemplate.objects.create(
+            metadata_template_container=metadata_template_container_3,
+        )
+
+        assert self.folder_1.get_available_metadata_template_container().count() == 2
         assert self.folder_1.get_available_metadata_templates().count() == 2
 
         project_2 = Project.objects.create(
             name="Project 2",
         )
 
-        MetadataTemplate.objects.create(
-            name="Project metadata template 2",
+        metadata_template_container_4 = MetadataTemplateContainer.objects.create(
+            name="Project metadata template container 2",
             assigned_to_content_type=project_2.get_content_type(),
             assigned_to_object_id=project_2.pk,
         )
 
-        assert self.folder_1.get_available_metadata_templates().count() == 2
-
         MetadataTemplate.objects.create(
-            name="Global metadata template 1",
+            metadata_template_container=metadata_template_container_4,
         )
 
+        assert self.folder_1.get_available_metadata_template_container().count() == 2
+        assert self.folder_1.get_available_metadata_templates().count() == 2
+
+        metadata_template_container_5 = MetadataTemplateContainer.objects.create(
+            name="Global metadata template container 1",
+        )
+
+        MetadataTemplate.objects.create(
+            metadata_template_container=metadata_template_container_5,
+        )
+
+        assert self.folder_1.get_available_metadata_template_container().count() == 3
         assert self.folder_1.get_available_metadata_templates().count() == 3
 
     def test_members_count(self, initial_users):
@@ -213,7 +341,7 @@ class TestFolderMetadataModel:
 
     def test_datasets_count(self):
         """
-        Ensure we get an accurate count of all datasets in a folder.
+        Ensure we get an accurate count of published datasets in a folder.
         """
         assert self.folder_1.datasets_count == 0
 
@@ -249,6 +377,14 @@ class TestFolderMetadataModel:
         UploadsDataset.objects.create(
             name="Dataset 4",
             folder=self.folder_1,
+        )
+
+        assert self.folder_1.datasets_count == 2
+
+        UploadsDataset.objects.create(
+            name="Dataset 5",
+            folder=self.folder_1,
+            publication_date=timezone.now(),
         )
 
         assert self.folder_1.datasets_count == 3

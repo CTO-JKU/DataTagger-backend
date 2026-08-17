@@ -1,6 +1,5 @@
-from django.conf import settings
-
 import pytest
+from django.conf import settings
 
 from fdm.core.helpers import get_max_lock_time
 from fdm.dbsettings.models import Setting

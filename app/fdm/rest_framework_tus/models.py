@@ -1,4 +1,3 @@
-import collections
 import os
 import tempfile
 import time
@@ -8,11 +7,8 @@ from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-
-from django_fsm import FSMField, transition
 from django_userforeignkey.models.fields import UserForeignKey
 from django_userforeignkey.request import get_current_user
-from jsonfield import JSONField
 
 from fdm.rest_framework_tus import settings, signals, states
 from fdm.rest_framework_tus.utils import write_bytes_to_file
@@ -42,12 +38,12 @@ class AbstractUpload(models.Model):
 
     guid = models.UUIDField(_("GUID"), default=uuid.uuid4, unique=True)
 
-    state = FSMField(default=states.INITIAL)
+    state = models.CharField(max_length=50, default=states.INITIAL)
 
     upload_offset = models.BigIntegerField(default=0)
     upload_length = models.BigIntegerField(default=-1)
 
-    upload_metadata = JSONField(load_kwargs={"object_pairs_hook": collections.OrderedDict})
+    upload_metadata = models.JSONField(default=dict)
 
     filename = models.CharField(max_length=255, blank=True)
 
@@ -127,30 +123,11 @@ class AbstractUpload(models.Model):
 
         return self.temporary_file_path
 
-    @transition(field=state, source=states.INITIAL, target=states.RECEIVING, conditions=[_temporary_file_exists])
-    def start_receiving(self):
-        """
-        State transition to indicate the first file chunk has been received successfully
-        """
-        # Trigger signal
-        signals.receiving.send(sender=self.__class__, instance=self)
+    def get_flow(self):
+        """Returns the UploadFlow FSM wrapper for this upload instance."""
+        from fdm.rest_framework_tus.flow import UploadFlow
 
-    @transition(field=state, source=states.RECEIVING, target=states.SAVING, conditions=[is_complete])
-    def start_saving(self):
-        """
-        State transition to indicate that the upload is complete, and that the temporary file will be transferred to
-          its final destination.
-        """
-        # Trigger signal
-        signals.saving.send(sender=self.__class__, instance=self)
-
-    @transition(field=state, source=states.SAVING, target=states.DONE)
-    def finish(self):
-        """
-        State transition to indicate the upload is ready and the file is ready for access
-        """
-        # Trigger signal
-        signals.finished.send(sender=self.__class__, instance=self)
+        return UploadFlow(self)
 
 
 class Upload(AbstractUpload):

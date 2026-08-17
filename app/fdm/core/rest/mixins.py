@@ -1,18 +1,49 @@
 from django.utils.translation import gettext_lazy as _
-
+from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from drf_spectacular.utils import extend_schema, inline_serializer
-
-from fdm.core.rest.serializers import LockStatusSerializer
+from fdm.core.rest.serializers import LockStatusSerializer, UploadsDatasetMetadataUpgradeStatusSerializer
 
 __all__ = [
+    "UploadsDatasetMetadataUpgradeStatusMixin",
     "LockStatusMixin",
     "LockMixin",
     "UnlockMixin",
 ]
+
+
+class UploadsDatasetMetadataUpgradeStatusMixin:
+    """
+    Metadata upgrade status of an uploads dataset instance.
+    """
+
+    @extend_schema(
+        responses={
+            200: UploadsDatasetMetadataUpgradeStatusSerializer,
+        },
+        methods=["GET"],
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="upgrade-metadata-status",
+        url_name="upgrade-metadata-status",
+        filterset_class=None,
+        pagination_class=None,
+    )
+    def upgrade_metadata_status(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        # The status of whether a data record can be updated should not be delayed when the API endpoint is called
+        # directly.
+        instance.has_upgradeable_metadata_templates = instance.is_latest_version_upgradeable()
+
+        return Response(
+            data=UploadsDatasetMetadataUpgradeStatusSerializer(instance).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class LockStatusMixin:

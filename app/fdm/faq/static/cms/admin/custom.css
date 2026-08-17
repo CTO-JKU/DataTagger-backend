@@ -1,0 +1,94 @@
+/*
+CSS to handle inside admin django
+by following the default `admin/css/base.css` from django
+*/
+
+*, ::after, ::before {
+    box-sizing: revert;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-size: 0.875rem;
+    line-height: unset;
+}
+
+[type=search] {
+    outline-offset: unset;
+    -webkit-appearance: unset;
+    vertical-align: middle;
+    font-family: var(--font-family-primary);
+    font-weight: normal;
+    font-size: 0.8125rem;
+}
+
+td, th {
+    border-color: var(--hairline-color);
+    border-style: solid;
+    border-width: 0 0 1px 0;
+}
+
+.h1, .h2, .h3, .h4, .h5, .h6, h1, h2, h3, h4, h5, h6 {
+    margin-top: initial;
+    margin-bottom: initial;
+    font-weight: bold;
+    line-height: initial;
+}
+
+h1 {
+    margin: 0 0 20px;
+    font-weight: 300;
+    font-size: 1.25rem;
+    color: var(--body-quiet-color);
+}
+
+h2 {
+    font-size: 1rem;
+    margin: 1em 0 .5em 0;
+    color: var(--body-fg);
+}
+
+#content .button,
+#content input[type=submit],
+#content input[type=button],
+#content .submit-row input,
+#content a.button {
+  padding: 5px 15px;
+}
+
+#content nav.sticky caption {
+  caption-side: unset;
+}
+
+#content .ui.tabular.menu+.attached:not(.top).segment,
+#content .ui.tabular.menu+.attached:not(.top).segment+.attached:not(.top).segment {
+  width: auto;
+}
+
+#content fieldset .form-row>div {
+  width: 100%;
+}
+
+#content .submit-row a.deletelink {
+  height: unset;
+}
+
+/* fix issue: #152 */
+.js-inline-admin-formset .form-row:not(.empty-form) {
+  display: revert;
+}
+
+/* fix issue: #270 */
+table {
+  caption-side: top;
+}
+
+/* fix issue: #168 */
+@media (prefers-color-scheme: dark) {
+  body {
+    color: var(--body-fg);
+    background: var(--body-bg);
+  }
+
+}

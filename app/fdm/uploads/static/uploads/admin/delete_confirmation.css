@@ -1,0 +1,11 @@
+.submit-row .delete {
+    background: var(--delete-button-bg) !important;
+    color: var(--button-fg) !important;
+}
+
+.submit-row .delete:focus,
+.submit-row .delete:hover,
+.submit-row .delete:active {
+    background: var(--delete-button-hover-bg) !important;
+    text-decoration: none !important;
+}

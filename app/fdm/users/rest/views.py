@@ -1,13 +1,11 @@
 from django.contrib.auth import get_user_model
-
+from django_rest_passwordreset.views import ResetPasswordConfirm, ResetPasswordRequestToken, ResetPasswordValidateToken
+from django_userforeignkey.request import get_current_user
+from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import mixins, serializers, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
-
-from django_rest_passwordreset.views import ResetPasswordConfirm, ResetPasswordRequestToken, ResetPasswordValidateToken
-from django_userforeignkey.request import get_current_user
-from drf_spectacular.utils import extend_schema, inline_serializer
 
 from fdm.core.rest.base import BaseModelViewSet
 from fdm.users.models import *
@@ -53,9 +51,16 @@ class UserViewSet(BaseModelViewSet, mixins.ListModelMixin, mixins.RetrieveModelM
         },
         methods=["GET"],
     )
+    @extend_schema(
+        request=UserSettingsUpdateSerializer,
+        responses={
+            200: UserSerializer,
+        },
+        methods=["PATCH"],
+    )
     @action(
         detail=False,
-        methods=["GET"],
+        methods=["GET", "PATCH"],
         url_path="me",
         url_name="me",
         filterset_class=None,
@@ -63,6 +68,11 @@ class UserViewSet(BaseModelViewSet, mixins.ListModelMixin, mixins.RetrieveModelM
     )
     def me(self, request, *args, **kwargs):
         user = get_current_user()
+
+        if request.method == "PATCH":
+            serializer = UserSettingsUpdateSerializer(user, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
 
         return Response(
             data=UserSerializer(user).data,

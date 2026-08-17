@@ -12,6 +12,10 @@ def error_handler(exc, context):
 
     # Now add the status fields to the response.
     if response is not None:
+        if not isinstance(response.data, dict):
+            response.data = {
+                "detail": response.data,
+            }
         response.data["success"] = False
         response.data["status_code"] = getattr(exc, "status_code", None) or response.status_code
 

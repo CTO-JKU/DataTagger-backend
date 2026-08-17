@@ -1,13 +1,23 @@
+from django import forms
 from django.contrib import admin
-from django.db import models
-
-from martor.widgets import AdminMartorWidget
 
 from fdm.cms.models.models import Content
+from fdm.core.widgets import EasyMDEWidget
+
+
+class ContentForm(forms.ModelForm):
+    class Meta:
+        model = Content
+        fields = "__all__"
+        widgets = {
+            "text_de": EasyMDEWidget,
+            "text_en": EasyMDEWidget,
+        }
 
 
 @admin.register(Content)
 class ContentAdmin(admin.ModelAdmin):
+    form = ContentForm
     actions = []  # Removes the delete action
     add_permissions = []  # Removes the ability to add new entries
     delete_permissions = []  # Removes the ability to delete entries
@@ -20,7 +30,9 @@ class ContentAdmin(admin.ModelAdmin):
 
     class Media:
         css = {
-            "all": ("cms/admin/custom.css",),
+            "screen": [
+                "cms/admin/custom.css",
+            ],
         }
 
     def get_readonly_fields(self, request, obj=None):
@@ -36,33 +48,33 @@ class ContentAdmin(admin.ModelAdmin):
     def get_prepopulated_fields(self, request, obj=None):
         # Prepopulation works for new objects only
         if not obj:
-            return {"slug": ("name",)}
+            return {
+                "slug": [
+                    "question",
+                ],
+            }
 
         return {}
 
-    formfield_overrides = {
-        models.TextField: {
-            "widget": AdminMartorWidget,
-        },
-    }
-
-    fields = (
+    fields = [
         "name",
         "slug",
         "published",
         "text_de",
         "text_en",
-    )
-    list_display = (
+    ]
+
+    list_display = [
         "name",
         "slug",
         "published",
         "last_modified_by",
         "last_modification_date",
-    )
-    search_fields = (
+    ]
+
+    search_fields = [
         "name",
         "text_de",
         "text_en",
         "slug",
-    )
+    ]

@@ -10,7 +10,6 @@ from django.core.files.storage import FileSystemStorage, default_storage
 from django.db import models
 from django.db.models.fields.files import FieldFile
 from django.utils.translation import gettext_lazy as _
-
 from django_fernet.fields import *
 from waffle import switch_is_active
 

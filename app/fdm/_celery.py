@@ -1,7 +1,6 @@
-from django.conf import settings
-
 from celery import Celery
 from celery.schedules import crontab
+from django.conf import settings
 
 app = Celery("fdm")
 
@@ -24,25 +23,16 @@ app.conf.beat_schedule = {
         "task": "fdm.uploads.tasks.remove_expired_locks",
         "schedule": 60 * 1,  # 1 minute
     },
-    "file_parser_calculate_sha256_checksum": {
-        "task": "fdm.file_parser.tasks.calculate_checksum",
-        "args": ("CHECKSUM_SHA256",),
+    "dataset_reconcile_metadata_template_processing": {
+        "task": "fdm.uploads.tasks.reconcile_dataset_metadata_template_processing",
         "schedule": 60 * 1,  # 1 minute
     },
-    "file_parser_determine_tasks_for_files": {
-        "task": "fdm.file_parser.tasks.determine_tasks_for_files",
-        "schedule": 60 * 1,  # 1 minute
+    "exports_cleanup_expired_exports": {
+        "task": "fdm.exports.tasks.cleanup_expired_exports",
+        "schedule": 60 * 60,  # 1 hour
     },
-    "file_parser_extract_exif_data": {
-        "task": "fdm.file_parser.tasks.extract_exif_data",
-        "schedule": 60 * 1,  # 1 minute
-    },
-    "file_parser_extract_file_information": {
-        "task": "fdm.file_parser.tasks.extract_file_information",
-        "schedule": 60 * 1,  # 1 minute
-    },
-    "file_parser_update_status_for_files": {
-        "task": "fdm.file_parser.tasks.update_status_for_files",
+    "file_parser_reconcile_uploaded_file_processing": {
+        "task": "fdm.file_parser.tasks.reconcile_uploaded_file_processing",
         "schedule": 60 * 1,  # 1 minute
     },
     "folder_remove_expired_locks": {

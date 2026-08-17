@@ -9,7 +9,7 @@
 {{ login_url }}
 
 {% blocktrans %}You can find out more about a TUM ID using this link:{% endblocktrans %}
-https://www.it.tum.de/en/it/faq/account-login-tum-id-mwnid-tumcard/tum-id/what-is-the-tum-id-tum-kennung/
+https://example.com/account-information
 
 {% blocktrans %}If you do not have a TUM ID, set a password for your new user account using this link:{% endblocktrans %}
 {{ reset_password_url }}

@@ -1,8 +1,7 @@
 import logging
 
-from django.utils import timezone
-
 from celery import shared_task
+from django.utils import timezone
 
 from fdm._celery import app
 from fdm.rest_framework_tus.models import Upload

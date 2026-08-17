@@ -1,7 +1,7 @@
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models.signals import pre_delete, pre_save
 from django.dispatch import receiver
-
+from django.utils.translation import gettext_lazy as _
 from django_rest_passwordreset.signals import reset_password_token_created
 
 from fdm.users.models import User
@@ -46,7 +46,13 @@ def password_reset_token_created(
 
 @receiver(pre_save, sender=User)
 def pre_save(sender, instance, **kwargs):
-    # If the user is created then we don't need to check anything
+    if not instance.settings:
+        instance.settings = {}
+
+    if not isinstance(instance.settings, dict):
+        raise ValidationError(_("Settings value must be of type dict"))
+
+    # If the user is created, then we don't need to check anything
     if instance.pk is None:
         return
 
@@ -72,10 +78,10 @@ def pre_save(sender, instance, **kwargs):
     )
 
     if not other_superusers:
-        raise PermissionDenied
+        raise PermissionDenied(_("You must not delete the last superuser."))
 
 
 @receiver(pre_delete, sender=User)
 def pre_delete(sender, instance, **kwargs):
     if instance.is_superuser:
-        raise PermissionDenied
+        raise PermissionDenied(_("You must not delete superusers."))

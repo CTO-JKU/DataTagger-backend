@@ -1,15 +1,12 @@
 from unittest.mock import patch
 
+import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
-
 from rest_framework import status
 from rest_framework.test import APIClient
-
-import pytest
-from rest_framework_jwt.settings import api_settings
 
 from fdm.shibboleth.models.models import ShibbolethAuthCode
 
@@ -63,9 +60,11 @@ class TestShibbolethViewSet:
         assert response.url == f"{settings.FRONTEND_WEB_URL}/auth-complete/{user.pk}"
 
         # Check if JWT token is set in the cookie
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["httponly"] is True
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["secure"] == api_settings.JWT_AUTH_COOKIE_SECURE
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["httponly"] is True
+        assert (
+            response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["secure"] == settings.SIMPLE_JWT["AUTH_COOKIE_SECURE"]
+        )
 
     def test_target_action_invalid_auth_code(self, api_client):
         url = reverse("shibboleth-target", kwargs={"auth_code": "invalid_code"})
@@ -199,10 +198,12 @@ class TestShibbolethViewSet:
         assert user.can_create_projects
 
         # Check JWT token cookie
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["httponly"] is True
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["secure"] == api_settings.JWT_AUTH_COOKIE_SECURE
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["samesite"] == "Lax"
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["httponly"] is True
+        assert (
+            response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["secure"] == settings.SIMPLE_JWT["AUTH_COOKIE_SECURE"]
+        )
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["samesite"] == "Lax"
 
         # Check redirect URL
         assert response.url == f"{settings.FRONTEND_WEB_URL}/auth-complete/{user.pk}"
@@ -232,7 +233,7 @@ class TestShibbolethViewSet:
         assert response.status_code == status.HTTP_302_FOUND
         user1 = User.objects.get(email="test1@example.com")
         assert user1.can_create_projects
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
         assert response.url == f"{settings.FRONTEND_WEB_URL}/auth-complete/{user1.pk}"
 
         # Test case 2: User should have can_create_projects set to False
@@ -257,7 +258,7 @@ class TestShibbolethViewSet:
         assert response.status_code == status.HTTP_302_FOUND
         user2 = User.objects.get(email="test2@example.com")
         assert user2.can_create_projects is False
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
         assert response.url == f"{settings.FRONTEND_WEB_URL}/auth-complete/{user2.pk}"
 
     def test_start_action_waffle_switch_disabled(self, api_client):
@@ -298,10 +299,12 @@ class TestShibbolethViewSet:
         assert updated_user.id == existing_user.id  # Ensure it's the same user, not a new one
 
         # Check JWT token cookie
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["httponly"] is True
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["secure"] == api_settings.JWT_AUTH_COOKIE_SECURE
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["samesite"] == "Lax"
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["httponly"] is True
+        assert (
+            response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["secure"] == settings.SIMPLE_JWT["AUTH_COOKIE_SECURE"]
+        )
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["samesite"] == "Lax"
 
         # Check redirect URL
         assert response.url == f"{settings.FRONTEND_WEB_URL}/auth-complete/{updated_user.pk}"
@@ -337,10 +340,12 @@ class TestShibbolethViewSet:
         assert new_user.username == "new"
 
         # Check JWT token cookie
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["httponly"] is True
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["secure"] == api_settings.JWT_AUTH_COOKIE_SECURE
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["samesite"] == "Lax"
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["httponly"] is True
+        assert (
+            response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["secure"] == settings.SIMPLE_JWT["AUTH_COOKIE_SECURE"]
+        )
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["samesite"] == "Lax"
 
         # Check redirect URL
         assert response.url == f"{settings.FRONTEND_WEB_URL}/auth-complete/{new_user.pk}"
@@ -380,10 +385,12 @@ class TestShibbolethViewSet:
         assert updated_user.edu_person_affiliation == "staff"
 
         # Check JWT token cookie
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["httponly"] is True
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["secure"] == api_settings.JWT_AUTH_COOKIE_SECURE
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["samesite"] == "Lax"
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["httponly"] is True
+        assert (
+            response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["secure"] == settings.SIMPLE_JWT["AUTH_COOKIE_SECURE"]
+        )
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["samesite"] == "Lax"
 
         # Check redirect URL
         assert response.url == f"{settings.FRONTEND_WEB_URL}/auth-complete/{updated_user.pk}"
@@ -411,10 +418,12 @@ class TestShibbolethViewSet:
         assert updated_user.edu_person_affiliation == "staff;student"
 
         # Check JWT token cookie
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["httponly"] is True
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["secure"] == api_settings.JWT_AUTH_COOKIE_SECURE
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["samesite"] == "Lax"
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["httponly"] is True
+        assert (
+            response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["secure"] == settings.SIMPLE_JWT["AUTH_COOKIE_SECURE"]
+        )
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["samesite"] == "Lax"
 
         # Check redirect URL
         assert response.url == f"{settings.FRONTEND_WEB_URL}/auth-complete/{updated_user.pk}"
@@ -440,33 +449,34 @@ class TestShibbolethViewSet:
             "HTTP_SHIB_PERSISTENT_ID": "test_persistent_id",
         }
 
-        with patch("fdm.shibboleth.rest.views.jwt_payload_handler") as mock_payload_handler:
-            with patch("fdm.shibboleth.rest.views.jwt_encode_handler") as mock_encode_handler:
-                mock_payload_handler.return_value = {"user_id": 1}
-                mock_encode_handler.return_value = "test_jwt_token"
+        mock_access_token = "test_jwt_token"
+        with patch("fdm.shibboleth.rest.views.RefreshToken") as mock_refresh_cls:
+            mock_refresh = mock_refresh_cls.for_user.return_value
+            mock_refresh.access_token = mock_access_token
 
-                response = api_client.get(url, **headers)
+            response = api_client.get(url, **headers)
 
         assert response.status_code == status.HTTP_302_FOUND
 
         # Check JWT token cookie
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE].value == "test_jwt_token"
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["httponly"] is True
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["secure"] == api_settings.JWT_AUTH_COOKIE_SECURE
-        assert response.cookies[api_settings.JWT_AUTH_COOKIE]["samesite"] == "Lax"
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]].value == mock_access_token
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["httponly"] is True
         assert (
-            response.cookies[api_settings.JWT_AUTH_COOKIE]["max-age"]
-            == api_settings.JWT_EXPIRATION_DELTA.total_seconds()
+            response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["secure"] == settings.SIMPLE_JWT["AUTH_COOKIE_SECURE"]
+        )
+        assert response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["samesite"] == "Lax"
+        assert (
+            response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]["max-age"]
+            == settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()
         )
 
         # Check redirect URL
         user = User.objects.get(email="test@example.com")
         assert response.url == f"{settings.FRONTEND_WEB_URL}/auth-complete/{user.pk}"
 
-        # Verify that jwt_payload_handler and jwt_encode_handler were called
-        mock_payload_handler.assert_called_once()
-        mock_encode_handler.assert_called_once()
+        # Verify that RefreshToken.for_user was called
+        mock_refresh_cls.for_user.assert_called_once()
 
     def test_target_action_redirect_url(self, api_client):
         auth_code = ShibbolethAuthCode.objects.create()
@@ -553,7 +563,7 @@ class TestShibbolethViewSet:
         assert response.status_code == status.HTTP_302_FOUND
         user1 = User.objects.get(email="test1@example.com")
         assert user1.can_create_projects is False
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
         assert response.url == f"{settings.FRONTEND_WEB_URL}/auth-complete/{user1.pk}"
 
         # Test case 2: Single affiliation "student"
@@ -564,7 +574,7 @@ class TestShibbolethViewSet:
         assert response.status_code == status.HTTP_302_FOUND
         user1.refresh_from_db()
         assert user1.can_create_projects
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
         assert response.url == f"{settings.FRONTEND_WEB_URL}/auth-complete/{user1.pk}"
 
         # Test case 3: Multiple affiliations including "alum"
@@ -575,7 +585,7 @@ class TestShibbolethViewSet:
         assert response.status_code == status.HTTP_302_FOUND
         user1.refresh_from_db()
         assert user1.can_create_projects
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
         assert response.url == f"{settings.FRONTEND_WEB_URL}/auth-complete/{user1.pk}"
 
     def test_target_action_invalid_auth_code_format(self, api_client):
@@ -681,12 +691,12 @@ class TestShibbolethViewSet:
         response = api_client.get(url, **headers)
 
         assert response.status_code == status.HTTP_302_FOUND
-        assert api_settings.JWT_AUTH_COOKIE in response.cookies
-        jwt_cookie = response.cookies[api_settings.JWT_AUTH_COOKIE]
+        assert settings.SIMPLE_JWT["AUTH_COOKIE"] in response.cookies
+        jwt_cookie = response.cookies[settings.SIMPLE_JWT["AUTH_COOKIE"]]
         assert jwt_cookie["httponly"] is True
-        assert jwt_cookie["secure"] == api_settings.JWT_AUTH_COOKIE_SECURE
+        assert jwt_cookie["secure"] == settings.SIMPLE_JWT["AUTH_COOKIE_SECURE"]
         assert jwt_cookie["samesite"] == "Lax"
-        assert jwt_cookie["max-age"] == api_settings.JWT_EXPIRATION_DELTA.total_seconds()
+        assert jwt_cookie["max-age"] == settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()
 
     def test_target_action_cleanup_old_auth_codes(self, api_client):
         # Create an old auth code that should be deleted

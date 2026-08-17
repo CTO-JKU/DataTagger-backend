@@ -1,11 +1,12 @@
+import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
-
 from rest_framework import status
 
-import pytest
-
+from fdm.core.helpers import get_content_type_for_model, get_content_type_for_object
+from fdm.file_parser.models import FileParser
 from fdm.folders.models import get_default_folder_storage
+from fdm.projects.models import Project
 from fdm.storages.models import DynamicStorage
 from fdm.storages.models.mappings import DEFAULT_STORAGE_TYPE
 from fdm.uploads.models import UploadsVersion, UploadsVersionFile
@@ -61,30 +62,14 @@ class TestStoragesAPI:
 
         folders = response.data
 
-        url = reverse("metadata-template-list")
+        url = reverse("metadata-template-container-list")
 
         response = client.post(
             url,
             {
                 "name": "Test metadata template",
-                "project": project["pk"],
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-
-        metadata_template = response.data
-
-        url = reverse(
-            "metadata-template-detail",
-            kwargs={
-                "pk": metadata_template["pk"],
-            },
-        )
-
-        response = client.patch(
-            url,
-            {
+                "assigned_to_content_type": get_content_type_for_model(Project),
+                "assigned_to_object_id": project["pk"],
                 "metadata_template_fields": [
                     {
                         "custom_key": "metadata_template_field_1",
@@ -98,7 +83,17 @@ class TestStoragesAPI:
             },
             format="json",
         )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        metadata_template = response.data["latest_metadata_template"]
+
+        url = reverse("metadata-template-field-list")
+
+        response = client.get(f"{url}?search=metadata_template_field_2", format="json")
         assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 1
+
+        metadata_template_field_2 = response.data["results"][0]
 
         url = reverse(
             "folder-detail",
@@ -109,7 +104,7 @@ class TestStoragesAPI:
 
         response = client.get(url, format="json")
         assert response.status_code == status.HTTP_200_OK
-        assert str(response.data["storage"]) == str(get_default_folder_storage().pk)
+        assert response.data["storage"]["pk"] == str(get_default_folder_storage().pk)
 
         response = client.patch(
             url,
@@ -120,7 +115,7 @@ class TestStoragesAPI:
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK
-        assert str(response.data["storage"]) == str(self.storage_1.pk)
+        assert response.data["storage"]["pk"] == str(self.storage_1.pk)
 
         url = reverse("uploads-dataset-list")
 
@@ -157,11 +152,12 @@ class TestStoragesAPI:
             format="multipart",
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert (
-            UploadsVersionFile.objects.get(pk=response.data["version_file"]["pk"])
-            .metadata.filter(custom_key="MIME_TYPE")
-            .exists()
-        )
+        version_file = UploadsVersionFile.objects.get(pk=response.data["version_file"]["pk"])
+        assert version_file.file_parser.filter(
+            parser_type=FileParser.Type.MIME_TYPE,
+            status=FileParser.Status.SCHEDULED,
+        ).exists()
+        assert not version_file.metadata.filter(custom_key="MIME_TYPE").exists()
 
         response = client.get(url, format="json")
         assert response.status_code == status.HTTP_200_OK
@@ -207,6 +203,8 @@ class TestStoragesAPI:
         assert response.status_code == status.HTTP_201_CREATED
         assert response.data["publication_date"] is not None
 
+        dataset = response.data
+
         # We must manually update the 'metadata_is_complete' flag as this usually is a delayed Celery task
         uploads_version = UploadsVersion.objects.get(pk=dataset["latest_version"]["pk"])
         uploads_version.metadata_is_complete = uploads_version.check_metadata_completeness()
@@ -223,7 +221,7 @@ class TestStoragesAPI:
         assert response.status_code == status.HTTP_200_OK
 
         # Now that the version has been published, is connected to a folder and also a
-        # metadata template it should not be in a complete state.
+        # metadata template, it should not be in a complete state.
         assert response.data["metadata_is_complete"] is False
 
         url = reverse(
@@ -243,6 +241,7 @@ class TestStoragesAPI:
                     {
                         "custom_key": "metadata_template_field_2",
                         "value": "Test value",
+                        "metadata_template_field": metadata_template_field_2["pk"],
                     },
                 ],
             },

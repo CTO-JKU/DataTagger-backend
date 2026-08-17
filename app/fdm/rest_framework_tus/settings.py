@@ -1,8 +1,7 @@
 import os
 
-from django.conf import settings as django_settings
-
 from dateutil import relativedelta
+from django.conf import settings as django_settings
 
 # Retrieve root settings dict
 REST_FRAMEWORK_TUS = getattr(django_settings, "REST_FRAMEWORK_TUS", {})

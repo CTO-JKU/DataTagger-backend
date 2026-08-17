@@ -1,0 +1,10 @@
+{% extends "emails/email_template.txt" %}
+
+{% load i18n %}
+
+{% block content %}
+{% blocktrans %}Your export for {{ object_count }} item(s) is ready.{% endblocktrans %}
+
+{% blocktrans %}You can download it here until {{ expires_at }}:{% endblocktrans %}
+{{ download_url }}
+{% endblock %}

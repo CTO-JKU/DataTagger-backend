@@ -18,7 +18,7 @@ class AuthenticateByEmailPasswordBackend(ModelBackend):
             username = kwargs.get(User.USERNAME_FIELD)
 
         try:
-            user = User.objects.get(email__lower=username.lower())
+            user = User.objects.get(email__iexact=username.lower())
         except User.DoesNotExist:
             return None
         else:

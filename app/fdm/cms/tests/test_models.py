@@ -1,8 +1,7 @@
+import pytest
 from django.contrib.admin import AdminSite
 from django.core.exceptions import PermissionDenied
 from django.urls import reverse
-
-import pytest
 
 from fdm.cms.admin import ContentAdmin
 from fdm.cms.models.models import Content

@@ -1,9 +1,7 @@
+import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
-
 from rest_framework import status
-
-import pytest
 
 from fdm.core.helpers import set_request_for_user
 from fdm.faq.models import *

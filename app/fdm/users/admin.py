@@ -9,6 +9,12 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
 
+from fdm.core.helpers import format_storage_size
+from fdm.folders.models import Folder, FolderPermission
+from fdm.metadata.models import MetadataTemplate, MetadataTemplateContainer, MetadataTemplateField
+from fdm.projects.models import Project, ProjectMembership
+from fdm.storages.models import DynamicStorage
+from fdm.uploads.models import UploadsDataset, UploadsVersion, UploadsVersionFile
 from fdm.users.models import Group
 
 User = get_user_model()
@@ -121,12 +127,19 @@ class MyUserAdmin(AuthUserAdmin):
                 ),
             },
         ),
+        (
+            _("Settings"),
+            {
+                "fields": ("settings", "storage_size_display"),
+            },
+        ),
     )
 
     list_display = [
         "username",
         "first_name",
         "last_name",
+        "storage_size_display",
         "is_active",
         "is_staff",
         "is_superuser",
@@ -179,6 +192,7 @@ class MyUserAdmin(AuthUserAdmin):
         "im_titel_anrede",
         "im_titel_pre",
         "im_titel_post",
+        "storage_size_display",
     ]
 
     actions = [
@@ -264,10 +278,81 @@ class MyUserAdmin(AuthUserAdmin):
 
     anonymize_selected_users.short_description = _("Anonymize selected users")
 
+    def gdpr_export_selected_users(self, request, queryset):
+        backlink = request.get_full_path()
+        users_count = queryset.count()
+
+        if users_count != 1:
+            self.message_user(
+                request,
+                _("GDPR export only supports exporting a single user at a time"),
+                level=messages.ERROR,
+            )
+
+            return HttpResponseRedirect(backlink)
+
+        user = queryset.first()
+
+        context = self.admin_site.each_context(request)
+        context["opts"] = self.model._meta
+        context["selected_user"] = user
+        context["projects"] = Project.objects.filter(created_by=user).order_by("name")
+        context["project_memberships"] = ProjectMembership.objects.filter(member=user).order_by("project")
+        context["folders"] = Folder.objects.filter(created_by=user).order_by("project", "name")
+        context["folder_permissions"] = FolderPermission.objects.filter(project_membership__member=user).order_by(
+            "project_membership__project",
+            "folder__name",
+        )
+        context["uploads_datasets"] = UploadsDataset.objects.filter(created_by=user).order_by(
+            "folder__project",
+            "folder",
+            "name",
+            "creation_date",
+        )
+        context["uploads_versions"] = UploadsVersion.objects.filter(created_by=user).order_by(
+            "dataset__folder__project",
+            "dataset__folder",
+            "dataset",
+            "name",
+            "creation_date",
+        )
+        context["uploads_version_files"] = (
+            UploadsVersionFile.objects.filter(created_by=user)
+            .distinct()
+            .order_by(
+                "uploads_versions__dataset__folder__project",
+                "uploads_versions__dataset__folder",
+                "uploads_versions__dataset",
+                "creation_date",
+            )
+        )
+        context["storages"] = DynamicStorage.objects.filter(created_by=user).order_by("name")
+        context["metadata_template_containers"] = MetadataTemplateContainer.objects.filter(created_by=user).order_by(
+            "assigned_to_object_id",
+            "name",
+        )
+        context["metadata_templates"] = MetadataTemplate.objects.filter(created_by=user).order_by(
+            "metadata_template_container",
+            "creation_date",
+        )
+        context["metadata_template_fields"] = MetadataTemplateField.objects.filter(
+            metadata_template__created_by=user,
+        ).order_by("metadata_template", "custom_key")
+        context["backlink"] = backlink
+
+        return render(
+            request,
+            "users/admin/gdpr_export_user.html",
+            context=context,
+        )
+
+    gdpr_export_selected_users.short_description = _("GDPR export selected users")
+
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         if object_id is not None:
             extra_context = extra_context or {}
             extra_context["anonymize_button"] = True
+            extra_context["gdpr_export_button"] = True
 
         return super().changeform_view(request, object_id, form_url, extra_context)
 
@@ -276,8 +361,16 @@ class MyUserAdmin(AuthUserAdmin):
             queryset = self.get_queryset(request).filter(pk=obj.pk)
 
             return self.anonymize_selected_users(request, queryset)
+        elif "_gdpr_export" in request.POST:
+            queryset = self.get_queryset(request).filter(pk=obj.pk)
+
+            return self.gdpr_export_selected_users(request, queryset)
         else:
             return super().response_change(request, obj)
+
+    @admin.display(ordering="storage_size", description="Storage size")
+    def storage_size_display(self, obj):
+        return format_storage_size(obj.storage_size)
 
 
 @admin.register(Group)

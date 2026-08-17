@@ -1,5 +1,4 @@
 from django.conf import settings
-
 from rest_framework import serializers
 
 from fdm.core.rest.serializers import BaseModelWithByUserSerializer
@@ -12,8 +11,8 @@ __all__ = [
 
 
 class StorageSerializer(BaseModelWithByUserSerializer):
-    # # This is an example implementation of a fernet encrypted string
-    # # This could be used to store a password for example
+    # This is an example implementation of a fernet encrypted string
+    # This could be used to store a password for example
     local_private_dss_path = DecryptedFernetTextField(
         source="local_private_dss_path_encrypted",
         secret=settings.SECRET_KEY,

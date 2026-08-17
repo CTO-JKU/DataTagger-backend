@@ -8,7 +8,6 @@ from django.contrib import admin
 from django.core.exceptions import ValidationError
 from django.http import HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
-
 from django_fernet.fernet import *
 
 from fdm.core.helpers import check_empty_value

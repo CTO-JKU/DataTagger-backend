@@ -3,10 +3,9 @@
 import uuid
 
 import django.db.models.deletion
+import django_userforeignkey.models.fields
 from django.conf import settings
 from django.db import migrations, models
-
-import django_userforeignkey.models.fields
 
 
 class Migration(migrations.Migration):

@@ -4,9 +4,6 @@ import uuid
 
 from django.db import migrations, models
 
-import django_fsm
-import jsonfield.fields
-
 
 class Migration(migrations.Migration):
     initial = True
@@ -19,10 +16,10 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("guid", models.UUIDField(default=uuid.uuid4, unique=True, verbose_name="GUID")),
-                ("state", django_fsm.FSMField(default="initial", max_length=50)),
+                ("state", models.CharField(default="initial", max_length=50)),
                 ("upload_offset", models.PositiveIntegerField(default=0)),
                 ("upload_length", models.IntegerField(default=-1)),
-                ("upload_metadata", jsonfield.fields.JSONField()),
+                ("upload_metadata", models.JSONField()),
                 ("filename", models.CharField(blank=True, max_length=255)),
                 ("temporary_file_path", models.CharField(max_length=4096, null=True)),
                 ("expires", models.DateTimeField(blank=True, null=True)),

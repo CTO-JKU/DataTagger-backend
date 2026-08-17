@@ -1,5 +1,4 @@
 from django.db.models import F
-
 from rest_framework import serializers
 
 from fdm.core.helpers import get_or_create_user

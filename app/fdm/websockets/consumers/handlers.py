@@ -1,13 +1,13 @@
 import copy
 
+from channels.layers import get_channel_layer
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
-
-from channels.layers import get_channel_layer
 from django_userforeignkey.request import get_current_user
 
 from fdm.core.helpers import get_content_type_for_model, send_websocket_message
 from fdm.folders.models import Folder
+from fdm.metadata.models import MetadataTemplateContainer
 from fdm.projects.models import Project
 from fdm.uploads.models import UploadsDataset, UploadsVersionFile
 
@@ -23,6 +23,7 @@ def websockets_instance_has_changes(original_instance, new_instance, relevant_fi
     return False
 
 
+@receiver(pre_save, sender=MetadataTemplateContainer)
 @receiver(pre_save, sender=Project)
 @receiver(pre_save, sender=Folder)
 @receiver(pre_save, sender=UploadsDataset)
@@ -58,6 +59,19 @@ def send_model_changed_websocket_message(instance):
                 },
             },
         )
+
+
+@receiver(post_save, sender=MetadataTemplateContainer)
+def metadata_template_container_changed_post_save(sender, instance, created, **kwargs):
+    original_instance = getattr(instance, "_original_instance", None)
+    relevant_fields = (
+        "name",
+        "metadata_templates",
+        "latest_metadata_template",
+    )
+
+    if original_instance and websockets_instance_has_changes(original_instance, instance, relevant_fields):
+        send_model_changed_websocket_message(instance)
 
 
 @receiver(post_save, sender=Project)

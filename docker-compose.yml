@@ -58,6 +58,8 @@ services:
     depends_on:
       - postgresql
       - maildump
+      - redis
+      - broker
   # Celery
   celery:
     <<: *restapi

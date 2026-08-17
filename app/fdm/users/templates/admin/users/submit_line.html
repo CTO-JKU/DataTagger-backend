@@ -9,4 +9,7 @@
     {% if anonymize_button %}
         <input type="submit" name="_anonymize" value="{% trans "Anonymize" %}">
     {% endif %}
+    {% if gdpr_export_button %}
+        <input type="submit" name="_gdpr_export" value="{% trans "GDPR Export" %}">
+    {% endif %}
 {% endblock %}

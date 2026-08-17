@@ -6,12 +6,12 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.utils.deprecation import MiddlewareMixin
-
 from django_userforeignkey.request import get_current_user
 
 User = get_user_model()
 
 request_logger = logging.getLogger("django.middleware.request_time_logging")
+MAX_DEBUG_SQL_LENGTH = 10000
 
 __all__ = [
     "RequestTimeLoggingMiddleware",
@@ -90,20 +90,36 @@ class RequestTimeLoggingMiddleware(MiddlewareMixin):
 
         # if status code is 2xx and debug mode is activated
         if 200 <= s <= 299 and settings.DEBUG:
-            total_time = 0
+            try:
+                queries = list(connection.queries)
+            except Exception as exc:
+                request_logger.warning(
+                    "Skipping debug query aggregation for %s because query inspection failed: %s",
+                    request.path,
+                    exc,
+                )
+            else:
+                total_time = 0
+                oversized_queries = 0
 
-            for query in connection.queries:
-                query_time = query.get("time")
-                if query_time is None:
-                    # django-debug-toolbar monkeypatches the connection
-                    # cursor wrapper and adds extra information in each
-                    # item in connection.queries. The query time is stored
-                    # under the key "duration" rather than "time" and is
-                    # in milliseconds, not seconds.
-                    query_time = query.get("duration", 0) / 1000
-                total_time += float(query_time)
+                for query in queries:
+                    sql = query.get("sql", "")
+                    if isinstance(sql, str) and len(sql) > MAX_DEBUG_SQL_LENGTH:
+                        oversized_queries += 1
 
-            r += ", %d queries, %0.4f seconds" % (len(connection.queries), total_time)
+                    query_time = query.get("time")
+                    if query_time is None:
+                        # django-debug-toolbar monkeypatches the connection
+                        # cursor wrapper and adds extra information in each
+                        # item in connection.queries. The query time is stored
+                        # under the key "duration" rather than "time" and is
+                        # in milliseconds, not seconds.
+                        query_time = query.get("duration", 0) / 1000
+                    total_time += float(query_time)
+
+                r += ", %d queries, %0.4f seconds" % (len(queries), total_time)
+                if oversized_queries:
+                    r += ", %d oversized SQL statements skipped" % oversized_queries
 
         self.log_message(request, "response", r)
         return response

@@ -3,8 +3,6 @@ import uuid
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from martor.models import MartorField
-
 from fdm.core.models import BaseModel, ByUserMixin, TimestampMixin
 
 __all__ = [
@@ -36,13 +34,13 @@ class Content(BaseModel, TimestampMixin, ByUserMixin):
         default=False,
     )
 
-    text_de = MartorField(
+    text_de = models.TextField(
         verbose_name=_("German text"),
         blank=True,
         null=True,
     )
 
-    text_en = MartorField(
+    text_en = models.TextField(
         verbose_name=_("English Text"),
         blank=True,
         null=True,

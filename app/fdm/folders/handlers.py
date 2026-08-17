@@ -3,7 +3,6 @@ from django.db.models import Q
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
-
 from django_userforeignkey.request import get_current_user
 
 from fdm.core.handlers import is_cascading_delete
@@ -13,6 +12,7 @@ from fdm.folders.models import Folder, FolderPermission
 from fdm.metadata.models import MetadataTemplate
 from fdm.projects.models import Project, ProjectMembership
 from fdm.uploads.models import UploadsDataset, UploadsVersion, UploadsVersionFile
+from fdm.uploads.tasks import schedule_metadata_template_upgrade_availability
 
 
 def folder_is_empty(folder):
@@ -36,7 +36,7 @@ def is_last_folder_admin(instance) -> bool:
 
 @receiver(pre_save, sender=FolderPermission)
 def prevent_downgrade_of_project_admin(sender, instance, *args, **kwargs):
-    # If the folder permission is created then we don't need to check anything
+    # If the folder permission is created, then we don't need to check anything
     if instance.pk is None:
         return
 
@@ -46,7 +46,7 @@ def prevent_downgrade_of_project_admin(sender, instance, *args, **kwargs):
 
 @receiver(pre_save, sender=FolderPermission)
 def prevent_downgrade_of_project_metadata_template_admin(sender, instance, *args, **kwargs):
-    # If the folder permission is created then we don't need to check anything
+    # If the folder permission is created, then we don't need to check anything
     if instance.pk is None:
         return
 
@@ -63,15 +63,15 @@ def prevent_removal_of_admins(sender, instance, *args, **kwargs):
         return
 
     if is_last_folder_admin(instance):
-        raise PermissionDenied
+        raise PermissionDenied(_("You must not delete the last folder admin."))
 
     if is_project_admin(instance.project_membership.member, instance.folder.project):
-        raise PermissionDenied
+        raise PermissionDenied(_("You must not delete project admins."))
 
 
 @receiver(pre_save, sender=FolderPermission)
 def prevent_downgrade_of_last_folder_admin(sender, instance, *args, **kwargs):
-    # If the folder permission is created then we don't need to check anything
+    # If the folder permission is created, then we don't need to check anything
     if instance.pk is None:
         return
 
@@ -88,6 +88,37 @@ def pre_save_folder_description(sender, instance, *args, **kwargs):
         instance.description = {}
 
 
+@receiver(pre_save, sender=Folder)
+def pre_save_folder_metadata_template(sender, instance, *args, **kwargs):
+    # If the instance is created, then we don't need to check anything
+    if instance.pk is None:
+        return
+
+    # Get the old value for this instance field if it already exists, else abort
+    try:
+        old_instance = Folder.objects.get(pk=instance.pk)
+    except Folder.DoesNotExist:
+        return
+
+    # Check if the value has been changed for this instance field
+    if old_instance.metadata_template == instance.metadata_template:
+        return
+
+    instance._schedule_metadata_template_upgrade_availability = True
+
+
+@receiver(post_save, sender=Folder)
+def post_save_folder_metadata_template(sender, instance, *args, **kwargs):
+    if not getattr(instance, "_schedule_metadata_template_upgrade_availability", False):
+        return
+
+    del instance._schedule_metadata_template_upgrade_availability
+    dataset_ids = UploadsDataset.objects.filter(
+        folder=instance,
+    ).values_list("pk", flat=True)
+    schedule_metadata_template_upgrade_availability(dataset_ids)
+
+
 @receiver(pre_delete, sender=Folder)
 def pre_delete(sender, instance, **kwargs):
     # Folder must not be deleted if there are datasets linked to it
@@ -96,7 +127,7 @@ def pre_delete(sender, instance, **kwargs):
     )
 
     if datasets.exists():
-        raise PermissionDenied
+        raise PermissionDenied(_("You must not delete folders with datasets in them."))
 
 
 @receiver(post_save, sender=Project)
@@ -210,7 +241,7 @@ def send_email_notification_for_new_folder_permission(sender, instance, created,
 
 @receiver(pre_save, sender=FolderPermission)
 def send_email_notification_for_changed_folder_permission(sender, instance, **kwargs):
-    # If the folder permission is created then we don't need to check anything
+    # If the folder permission is created, then we don't need to check anything
     if instance.pk is None:
         return
 
@@ -240,12 +271,20 @@ def send_email_notification_for_deleted_folder_permission(sender, instance, *arg
 @receiver(post_save, sender=MetadataTemplate)
 def post_save_metadata_template_update_folder_metadata_templates_count(sender, instance, *args, **kwargs):
     # We are currently intentionally ignoring global templates
-    if isinstance(instance.assigned_to_content_object, Folder):
-        instance.assigned_to_content_object.update_metadata_templates_count()
+    if instance.metadata_template_container and isinstance(
+        instance.metadata_template_container.assigned_to_content_object,
+        Folder,
+    ):
+        instance.metadata_template_container.assigned_to_content_object.refresh_from_db()
+        instance.metadata_template_container.assigned_to_content_object.update_metadata_templates_count()
 
 
 @receiver(post_delete, sender=MetadataTemplate)
 def post_delete_metadata_template_update_folder_metadata_templates_count(sender, instance, *args, **kwargs):
     # We are currently intentionally ignoring global templates
-    if isinstance(instance.assigned_to_content_object, Folder):
-        instance.assigned_to_content_object.update_metadata_templates_count()
+    if instance.metadata_template_container and isinstance(
+        instance.metadata_template_container.assigned_to_content_object,
+        Folder,
+    ):
+        instance.metadata_template_container.assigned_to_content_object.refresh_from_db()
+        instance.metadata_template_container.assigned_to_content_object.update_metadata_templates_count()

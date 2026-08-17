@@ -18,8 +18,8 @@ class AbstractUploadSaveHandler(metaclass=ABCMeta):
 
     def run(self):
         # Trigger state change
-        self.upload.start_saving()
-        self.upload.save()
+        flow = self.upload.get_flow()
+        flow.start_saving()
 
         # Initialize saving
         self.handle_save()
@@ -29,8 +29,8 @@ class AbstractUploadSaveHandler(metaclass=ABCMeta):
         signals.saved.send(sender=self.__class__, instance=self)
 
         # Finish
-        self.upload.finish()
-        self.upload.save()
+        flow = self.upload.get_flow()
+        flow.finish()
 
 
 class DefaultSaveHandler(AbstractUploadSaveHandler):

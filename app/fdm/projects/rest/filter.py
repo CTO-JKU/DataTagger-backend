@@ -1,8 +1,10 @@
+from uuid import UUID
+
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-
 from django_filters import rest_framework
 from django_userforeignkey.request import get_current_user
+from rest_framework.exceptions import ValidationError
 
 from fdm.projects.models import Project, ProjectMembership
 
@@ -10,6 +12,8 @@ __all__ = [
     "ProjectCreatorFilter",
     "ProjectMembershipFilter",
 ]
+
+MAX_PROJECT_PK_FILTER_VALUES = 50
 
 
 class ProjectCreatorFilter(rest_framework.FilterSet):
@@ -27,6 +31,11 @@ class ProjectCreatorFilter(rest_framework.FilterSet):
         choices=Creator.choices,
     )
 
+    pk = rest_framework.Filter(
+        label=_("Filter by project IDs"),
+        method="filter_by_pk",
+    )
+
     membership = rest_framework.ChoiceFilter(
         label=_("Filter by membership status"),
         method="filter_by_membership_status",
@@ -36,10 +45,40 @@ class ProjectCreatorFilter(rest_framework.FilterSet):
     class Meta:
         model = Project
         fields = [
+            "pk",
             "created_by",
             "membership",
             "is_deletable",
         ]
+
+    def filter_by_pk(self, queryset, name, value):
+        values = self.request.query_params.getlist(name)
+
+        if len(values) > MAX_PROJECT_PK_FILTER_VALUES:
+            raise ValidationError(
+                {
+                    name: _(
+                        "Ensure this list has no more than %(limit)s values.",
+                    )
+                    % {
+                        "limit": MAX_PROJECT_PK_FILTER_VALUES,
+                    },
+                },
+            )
+
+        project_ids = []
+
+        for raw_value in values:
+            try:
+                project_ids.append(str(UUID(raw_value)))
+            except (TypeError, ValueError):
+                raise ValidationError(
+                    {
+                        name: _("Enter a valid UUID."),
+                    },
+                )
+
+        return queryset.filter(pk__in=list(dict.fromkeys(project_ids)))
 
     def filter_by_creator(self, queryset, name, value):
         user = get_current_user()

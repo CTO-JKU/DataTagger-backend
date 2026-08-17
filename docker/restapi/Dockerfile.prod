@@ -1,5 +1,4 @@
 FROM python:3.11-slim
-LABEL maintainer="Martin Fischer <MFischer@anexia-it.com>"
 
 RUN apt-get update && \
     apt-get install -y \

@@ -1,21 +1,21 @@
+import pytest
+from conftest import auth_user
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-
-from rest_framework import status
-
-import pytest
-from conftest import auth_user
 from django_rest_passwordreset.models import ResetPasswordToken
+from rest_framework import status
+from waffle.models import Switch
 
 from fdm.core.helpers import get_content_type_for_object, set_request_for_user
 from fdm.folders.models import Folder, FolderPermission, get_default_folder_storage
 from fdm.folders.rest.filter import FolderPermissionFilter
 from fdm.metadata.helpers import MetadataFieldType, set_metadata
-from fdm.metadata.models import MetadataTemplate, MetadataTemplateField
+from fdm.metadata.models import MetadataTemplate, MetadataTemplateContainer, MetadataTemplateField
 from fdm.projects.models import Project, ProjectMembership
+from fdm.storages.models import DynamicStorage
 from fdm.uploads.models import UploadsDataset
 
 User = get_user_model()
@@ -31,14 +31,22 @@ class TestFolderAPI:
             name="Project 1",
         )
 
+        self.folder_1 = self.project_1.folder.first()
+
         self.project_2 = Project.objects.create(
             name="Project 2",
         )
 
-        self.metadata_template_1 = MetadataTemplate.objects.create(
-            name="Metadata template 1",
+        self.folder_2 = self.project_2.folder.first()
+
+        self.metadata_template_container_1 = MetadataTemplateContainer.objects.create(
+            name="Project metadata template container 1",
             assigned_to_content_type=self.project_1.get_content_type(),
             assigned_to_object_id=self.project_1.pk,
+        )
+
+        self.metadata_template_1 = MetadataTemplate.objects.create(
+            metadata_template_container=self.metadata_template_container_1,
         )
 
         set_metadata(
@@ -48,7 +56,7 @@ class TestFolderAPI:
             value="custom_value_1",
         )
 
-    def test_read_folder_list(self, client):
+    def test_read_folder_list(self, client, initial_users):
         """
         Ensure we can read the folder list.
         """
@@ -57,6 +65,44 @@ class TestFolderAPI:
         response = client.get(url, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data["results"]) == 2
+
+        url_filter = f"{url}?folder_permission__can_edit=true"
+        response = client.get(url_filter, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 2
+
+        url_filter = f"{url}?folder_permission__can_edit=false"
+        response = client.get(url_filter, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 0
+
+        project_membership_user_2 = ProjectMembership.objects.create(
+            project=self.project_1,
+            member=initial_users["user_2"],
+            is_project_admin=False,
+            can_create_folders=False,
+            is_metadata_template_admin=False,
+        )
+
+        FolderPermission.objects.create(
+            folder=self.folder_1,
+            project_membership=project_membership_user_2,
+            is_folder_admin=False,
+            is_metadata_template_admin=False,
+            can_edit=False,
+        )
+
+        auth_user(client, initial_users["user_2"])
+
+        url_filter = f"{url}?folder_permission__can_edit=true"
+        response = client.get(url_filter, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 0
+
+        url_filter = f"{url}?folder_permission__can_edit=false"
+        response = client.get(url_filter, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 1
 
     def test_read_folder_details(self, client):
         """
@@ -90,7 +136,73 @@ class TestFolderAPI:
 
         response = client.get(url, format="json")
         assert response.status_code == status.HTTP_200_OK
-        assert response.data["storage"] == default_storage.pk
+        assert response.data["storage"]["pk"] == str(default_storage.pk)
+
+    def test_change_folder_storage(self, client, initial_users):
+        """
+        Ensure we can change the folder storage using a storage PK payload
+        and get the full storage object in the response.
+        """
+        project_membership, _ = ProjectMembership.objects.update_or_create(
+            project=self.project_1,
+            member=initial_users["user_1"],
+            defaults={
+                "is_project_admin": True,
+                "can_create_folders": True,
+                "is_metadata_template_admin": True,
+            },
+        )
+
+        FolderPermission.objects.update_or_create(
+            folder=self.folder_1,
+            project_membership=project_membership,
+            defaults={
+                "is_folder_admin": True,
+                "is_metadata_template_admin": True,
+                "can_edit": True,
+            },
+        )
+
+        auth_user(client, initial_users["user_1"])
+
+        assert FolderPermission.objects.filter(
+            folder=self.folder_1,
+            project_membership__member=initial_users["user_1"],
+            is_folder_admin=True,
+        ).exists()
+
+        Switch.objects.update_or_create(
+            name="storage_private_dss_enabled_switch",
+            defaults={
+                "active": True,
+            },
+        )
+
+        new_storage = DynamicStorage.objects.create(
+            name="New storage",
+            storage_type="private_dss",
+            approved=True,
+            mounted=True,
+        )
+
+        url = reverse(
+            "folder-detail",
+            kwargs={
+                "pk": self.folder_1.pk,
+            },
+        )
+
+        response = client.patch(
+            url,
+            {
+                "storage": new_storage.pk,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert isinstance(response.data["storage"], dict)
+        assert response.data["storage"]["pk"] == str(new_storage.pk)
+        assert response.data["storage"]["name"] == new_storage.name
 
     def test_change_folder_details(self, client):
         """
@@ -198,7 +310,8 @@ class TestFolderAPI:
 
         response = client.get(url, format="json")
         assert response.status_code == status.HTTP_200_OK
-        assert response.data["name"] == "Metadata template 2"
+        assert response.data["name"] is None
+        assert response.data["metadata_template_container"]["name"] == "Metadata template 2"
 
     def test_delete(self, client):
         """
@@ -241,6 +354,77 @@ class TestFolderAPI:
         assert Folder.objects.filter(pk=folder_pk).count() == 1
         assert FolderPermission.objects.filter(folder=folder_pk).count() == 1
 
+    def test_folder_metadata_template_container_action(self, client):
+        """
+        Ensure we can read the available metadata template container list for a folder.
+        """
+        url = reverse(
+            "folder-detail",
+            kwargs={
+                "pk": self.project_1.folders.first().pk,
+            },
+        )
+
+        # We can't use reverse for the action as this would collide with other routers
+        action_url = f"{url}metadata-template-container/"
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 1
+
+        url = reverse("folder-list")
+
+        response = client.post(
+            url,
+            {
+                "name": "Folder 2",
+                "project": str(self.project_1.pk),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Folder.objects.filter(project=self.project_1).count() == 2
+
+        folder_2 = response.data
+
+        MetadataTemplateContainer.objects.create(
+            name="Folder metadata template container 2",
+            assigned_to_content_type=ContentType.objects.get_for_model(Folder),
+            assigned_to_object_id=folder_2["pk"],
+        )
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 1
+
+        MetadataTemplateContainer.objects.create(
+            name="Project metadata template container 1",
+            assigned_to_content_type=self.project_1.get_content_type(),
+            assigned_to_object_id=self.project_1.pk,
+        )
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 2
+
+        MetadataTemplateContainer.objects.create(
+            name="Project metadata template container 2",
+            assigned_to_content_type=self.project_2.get_content_type(),
+            assigned_to_object_id=self.project_2.pk,
+        )
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 2
+
+        MetadataTemplateContainer.objects.create(
+            name="Global metadata template container 1",
+        )
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 3
+
     def test_folder_metadata_templates_action(self, client):
         """
         Ensure we can read the available metadata templates list for a folder.
@@ -274,38 +458,54 @@ class TestFolderAPI:
 
         folder_2 = response.data
 
-        MetadataTemplate.objects.create(
-            name="Folder metadata template 2",
+        metadata_template_container_2 = MetadataTemplateContainer.objects.create(
+            name="Folder metadata template container 2",
             assigned_to_content_type=ContentType.objects.get_for_model(Folder),
             assigned_to_object_id=folder_2["pk"],
+        )
+
+        MetadataTemplate.objects.create(
+            metadata_template_container=metadata_template_container_2,
         )
 
         response = client.get(action_url, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data) == 1
 
-        MetadataTemplate.objects.create(
-            name="Project metadata template 1",
+        metadata_template_container_3 = MetadataTemplateContainer.objects.create(
+            name="Project metadata template container 1",
             assigned_to_content_type=self.project_1.get_content_type(),
             assigned_to_object_id=self.project_1.pk,
         )
 
-        response = client.get(action_url, format="json")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.data) == 2
-
         MetadataTemplate.objects.create(
-            name="Project metadata template 2",
-            assigned_to_content_type=self.project_2.get_content_type(),
-            assigned_to_object_id=self.project_2.pk,
+            metadata_template_container=metadata_template_container_3,
         )
 
         response = client.get(action_url, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data) == 2
 
+        metadata_template_container_4 = MetadataTemplateContainer.objects.create(
+            name="Project metadata template container 2",
+            assigned_to_content_type=self.project_2.get_content_type(),
+            assigned_to_object_id=self.project_2.pk,
+        )
+
         MetadataTemplate.objects.create(
-            name="Global metadata template 1",
+            metadata_template_container=metadata_template_container_4,
+        )
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 2
+
+        metadata_template_container_5 = MetadataTemplateContainer.objects.create(
+            name="Global metadata template container 1",
+        )
+
+        MetadataTemplate.objects.create(
+            metadata_template_container=metadata_template_container_5,
         )
 
         response = client.get(action_url, format="json")
@@ -314,7 +514,7 @@ class TestFolderAPI:
 
     def test_datasets_count(self, client, initial_users):
         """
-        Ensure we get an accurate count of all datasets in a folder.
+        Ensure we get an accurate count of published datasets in a folder.
         """
         url = reverse(
             "folder-detail",
@@ -412,7 +612,7 @@ class TestFolderAPI:
         assert response.status_code == status.HTTP_200_OK
         assert response.data["datasets_count"] == 1
 
-        UploadsDataset.objects.create(
+        uploads_dataset_4 = UploadsDataset.objects.create(
             name="Dataset 4",
             folder_id=folder_1["pk"],
         )
@@ -423,6 +623,13 @@ class TestFolderAPI:
                 "pk": folder_1["pk"],
             },
         )
+
+        response = client.get(url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["datasets_count"] == 2
+
+        uploads_dataset_4.publication_date = timezone.now()
+        uploads_dataset_4.save()
 
         response = client.get(url, format="json")
         assert response.status_code == status.HTTP_200_OK
@@ -510,15 +717,18 @@ class TestFolderAPI:
 
         response = client.get(url, format="json")
         assert response.status_code == status.HTTP_200_OK
-        assert response.data["name"] == "Metadata template 2"
+        assert response.data["name"] is None
+        assert response.data["metadata_template_container"]["name"] == "Metadata template 2"
 
         content_type = ContentType.objects.get_for_model(Folder)
-        assert response.data["assigned_to_content_type"] == get_content_type_for_object(content_type)
-        assert response.data["assigned_to_object_id"] == folder["pk"]
+        assert response.data["metadata_template_container"]["assigned_to_content_type"] == get_content_type_for_object(
+            content_type,
+        )
+        assert response.data["metadata_template_container"]["assigned_to_object_id"] == folder["pk"]
 
-        assert response.data["project"] is not None
-        assert response.data["project"]["pk"] == str(self.project_1.pk)
-        assert response.data["project"]["name"] == self.project_1.name
+        assert response.data["metadata_template_container"]["project"] is not None
+        assert response.data["metadata_template_container"]["project"]["pk"] == str(self.project_1.pk)
+        assert response.data["metadata_template_container"]["project"]["name"] == self.project_1.name
 
         url = reverse("metadata-template-field-list")
         url_filter = f"{url}?metadata_template={folder['metadata_template']['pk']}"
@@ -1683,36 +1893,174 @@ class TestFolderAPI:
         """
         folder_1 = self.project_1.folders.first()
 
+        assert MetadataTemplateContainer.objects.count() == 1
         assert MetadataTemplate.objects.count() == 1
         assert folder_1.metadata_templates_count == 1
 
+        metadata_template_container_1 = MetadataTemplateContainer.objects.create(
+            name="Global metadata template container 1",
+        )
+
         MetadataTemplate.objects.create(
-            name="Global template 1",
+            metadata_template_container=metadata_template_container_1,
         )
 
         folder_1.refresh_from_db()
+        assert MetadataTemplateContainer.objects.count() == 2
         assert MetadataTemplate.objects.count() == 2
         assert folder_1.metadata_templates_count == 1
 
-        MetadataTemplate.objects.create(
-            name="Project template 1",
+        metadata_template_container_2 = MetadataTemplateContainer.objects.create(
+            name="Project metadata template container 1",
             assigned_to_content_type=self.project_1.get_content_type(),
             assigned_to_object_id=self.project_1.pk,
         )
 
+        MetadataTemplate.objects.create(
+            metadata_template_container=metadata_template_container_2,
+        )
+
         folder_1.refresh_from_db()
+        assert MetadataTemplateContainer.objects.count() == 3
         assert MetadataTemplate.objects.count() == 3
         assert folder_1.metadata_templates_count == 2
 
-        MetadataTemplate.objects.create(
-            name="Folder template 1",
+        metadata_template_container_3 = MetadataTemplateContainer.objects.create(
+            name="Folder metadata template container 1",
             assigned_to_content_type=folder_1.get_content_type(),
             assigned_to_object_id=folder_1.pk,
         )
 
+        MetadataTemplate.objects.create(
+            metadata_template_container=metadata_template_container_3,
+        )
+
         folder_1.refresh_from_db()
+        assert MetadataTemplateContainer.objects.count() == 4
         assert MetadataTemplate.objects.count() == 4
         assert folder_1.metadata_templates_count == 3
+
+    def test_metadata_template_container_pool(self, client, initial_users):
+        """
+        Ensure we can set and get the folder's metadata template container pool.
+        """
+        url = reverse(
+            "folder-detail",
+            kwargs={
+                "pk": self.project_1.folder.first().pk,
+            },
+        )
+        action_url = f"{url}metadata-template-container-pool/"
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 0
+
+        response = client.put(
+            action_url,
+            {
+                "metadata_template_container": [
+                    "8530f9ea-d04a-40b1-b502-82b9cdc78727",
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+        response = client.put(
+            action_url,
+            {
+                "metadata_template_container": [
+                    self.metadata_template_container_1.pk,
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 1
+
+        metadata_template_container_2 = MetadataTemplateContainer.objects.create(
+            name="Metadata Template Container 2",
+        )
+
+        metadata_template_2 = MetadataTemplate.objects.create(
+            metadata_template_container=metadata_template_container_2,
+        )
+
+        response = client.put(
+            action_url,
+            {
+                "metadata_template_container": [
+                    metadata_template_container_2.pk,
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 1
+
+        response = client.put(
+            action_url,
+            {
+                "metadata_template_container": [
+                    self.metadata_template_container_1.pk,
+                    metadata_template_container_2.pk,
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 2
+
+        response = client.put(
+            action_url,
+            {
+                "metadata_template_container": [],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 0
+
+        self.project_1.metadata_template = self.metadata_template_1
+        self.project_1.save()
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 1
+
+        self.folder_1.metadata_template = metadata_template_2
+        self.folder_1.save()
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 2
+
+        self.folder_1.metadata_template = None
+        self.folder_1.save()
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 1
+
+        self.project_1.metadata_template = None
+        self.project_1.save()
+
+        response = client.get(action_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 0
 
 
 @pytest.mark.django_db
@@ -2331,7 +2679,7 @@ class TestFolderPermissionAPI:
         general_folder = Folder.objects.get(project=project_id)
         assert general_folder.members_count == 2
 
-    def test_update_folder_permission_using_numeric_id(self, client, initial_users):
+    def test_change_folder_permission_using_numeric_id(self, client, initial_users):
         # Create a project
         auth_user(client, initial_users["tum_member_user"])
         url = reverse("project-list")
@@ -2400,7 +2748,7 @@ class TestFolderPermissionAPI:
         assert not FolderPermission.objects.get(pk=add_regular_response.data["pk"]).is_folder_admin
         assert FolderPermission.objects.get(pk=add_regular_response.data["pk"]).can_edit
 
-    def test_update_folder_permission_using_email(self, client, initial_users):
+    def test_change_folder_permission_using_email(self, client, initial_users):
         # Create a project
         auth_user(client, initial_users["tum_member_user"])
         url = reverse("project-list")

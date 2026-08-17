@@ -10,7 +10,6 @@ from django.db.models import UniqueConstraint
 from django.db.models.functions import Lower
 from django.template.loader import render_to_string
 from django.utils.translation import gettext_lazy as _
-
 from django_userforeignkey.request import get_current_user
 
 from fdm.core.models import BaseModel
@@ -153,6 +152,45 @@ class User(BaseModel, AbstractUser):
         default=False,
     )
 
+    settings = models.JSONField(
+        blank=True,
+        null=False,
+        default=dict,
+    )
+
+    storage_size = models.BigIntegerField(
+        blank=False,
+        null=False,
+        default=0,
+    )
+
+    def update_storage_size(self) -> None:
+        from django.contrib.contenttypes.models import ContentType
+
+        from fdm.core.helpers import get_metadata_value_file_size
+        from fdm.metadata.models import Metadata
+        from fdm.uploads.models import UploadsVersionFile
+
+        total_size = 0
+        file_ids = list(
+            UploadsVersionFile.objects.filter(
+                created_by=self.pk,
+            ).values_list("id", flat=True),
+        )
+
+        if file_ids:
+            metadata_values = Metadata.objects.filter(
+                assigned_to_content_type=ContentType.objects.get_for_model(UploadsVersionFile),
+                assigned_to_object_id__in=file_ids,
+                custom_key="FILE_SIZE",
+            ).values_list("value", flat=True)
+
+            for metadata_value in metadata_values:
+                total_size += get_metadata_value_file_size(metadata_value)
+
+        self.storage_size = total_size
+        self.save(update_fields=["storage_size"])
+
     @property
     def display_name(self) -> str:
         if self.first_name and self.last_name:
@@ -235,7 +273,7 @@ class User(BaseModel, AbstractUser):
         full_context = {
             "APP_TITLE": "TUM {}".format(get_dbsettings_value("APP_TITLE")),
             "APP_CONTACT_EMAIL": get_contact_email(),
-            "APP_LEGAL_NOTICE_URL": "https://domain.com/impressum",  # TODO: Make this configurable via settings
+            "APP_LEGAL_NOTICE_URL": "https://example.com/legal-notice",  # TODO: Make this configurable via settings
             "APP_PRIVACY_POLICY_URL": f"{settings.FRONTEND_WEB_URL}/privacy-policy",  # TODO: Make this configurable via settings
             "user": self.display_name,
             "subject": subject,

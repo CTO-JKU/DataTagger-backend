@@ -2,12 +2,10 @@ import json
 import logging
 
 from django.utils.translation import gettext_lazy as _
-
-from rest_framework import serializers
-
 from django_fernet.fernet import *
 from drf_spectacular import types as drf_spectacular_types
 from drf_spectacular import utils as drf_spectacular_utils
+from rest_framework import serializers
 
 __all__ = [
     "DecryptedFernetTextField",

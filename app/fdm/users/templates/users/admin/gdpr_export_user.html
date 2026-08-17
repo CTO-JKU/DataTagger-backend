@@ -1,0 +1,743 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% load i18n admin_modify %}
+
+{% block extrastyle %}
+    {{ block.super }}
+    <link rel="stylesheet" type="text/css" href="{% static "users/admin/gdpr_export_user.css" %}" />
+{% endblock %}
+
+{% block content %}
+    <div class="delete-confirmation">
+        <form action="{% url 'admin:users_user_changelist' %}" method="POST">
+            {% csrf_token %}
+
+            <h1>{% trans "GDPR export of user" %} {{ selected_user.email }}</h1>
+
+            <h2>{% trans "Contents" %}</h2>
+
+            <ul>
+                <li>
+                    <a href="#personal-data">{% trans "Personal data" %}</a>
+                </li>
+                <li>
+                    <a href="#shibboleth-data">{% trans "Shibboleth data" %}</a>
+                </li>
+                <li>
+                    <a href="#projects">{% trans "Projects created by the user" %}</a>
+                </li>
+                <li>
+                    <a href="#project-memberships">{% trans "Project memberships of the user" %}</a>
+                </li>
+                <li>
+                    <a href="#folders">{% trans "Folders created by the user" %}</a>
+                </li>
+                <li>
+                    <a href="#folder-permissions">{% trans "Folder permissions of the user" %}</a>
+                </li>
+                <li>
+                    <a href="#uploads-datasets">{% trans "Uploads datasets created by the user" %}</a>
+                </li>
+                <li>
+                    <a href="#uploads-versions">{% trans "Uploads versions created by the user" %}</a>
+                </li>
+                <li>
+                    <a href="#files">{% trans "Files uploaded by the user" %}</a>
+                </li>
+                <li>
+                    <a href="#storages">{% trans "Storages created by the user" %}</a>
+                </li>
+                <li>
+                    <a href="#metadata-templates">{% trans "Metadata templates created by the user" %}</a>
+                </li>
+                <li>
+                    <a href="#metadata-template-versions">{% trans "Metadata template versions created by the user" %}</a>
+                </li>
+                <li>
+                    <a href="#metadata-template-version-fields">{% trans "Metadata template version fields created by the user" %}</a>
+                </li>
+            </ul>
+
+            <h2 id="personal-data">{% trans "Personal data" %}</h2>
+
+            <ul>
+                {% if selected_user.username %}
+                    <li>
+                        <strong>{% trans "Username" %}:</strong>
+                        {{ selected_user.username }}
+                    </li>
+                {% endif %}
+                {% if selected_user.first_name %}
+                    <li>
+                        <strong>{% trans "First name" %}:</strong>
+                        {{ selected_user.first_name }}
+                    </li>
+                {% endif %}
+                {% if selected_user.last_name %}
+                    <li>
+                        <strong>{% trans "Last name" %}:</strong>
+                        {{ selected_user.last_name }}
+                    </li>
+                {% endif %}
+                {% if selected_user.email %}
+                    <li>
+                        <strong>{% trans "Email" %}:</strong>
+                        {{ selected_user.email }}
+                    </li>
+                {% endif %}
+            </ul>
+
+            <h2 id="shibboleth-data">{% trans "Shibboleth data" %}</h2>
+
+            <ul>
+                {% if selected_user.im_titel_pre or selected_user.im_titel_anrede or selected_user.im_titel_post or selected_user.given_name or selected_user.sn or selected_user.edu_person_affiliation or selected_user.im_org_zug_mitarbeiter or selected_user.im_org_zug_gast or selected_user.im_org_zug_student or selected_user.im_akademischer_grad %}
+                    <li>
+                        <strong>{% trans "Titel/Anrede" %}:</strong>
+                        {% if selected_user.im_titel_pre %}
+                            {{ selected_user.im_titel_pre }}
+                        {% endif %}
+                        {% if selected_user.im_titel_anrede %}
+                            {{ selected_user.im_titel_anrede }}
+                        {% endif %}
+                        {% if selected_user.im_titel_post %}
+                            {{ selected_user.im_titel_post }}
+                        {% endif %}
+                    </li>
+                {% endif %}
+                {% if selected_user.given_name %}
+                    <li>
+                        <strong>{% trans "Given name" %}:</strong>
+                        {{ selected_user.given_name }}
+                    </li>
+                {% endif %}
+                {% if selected_user.sn %}
+                    <li>
+                        <strong>{% trans "Surname" %}:</strong>
+                        {{ selected_user.sn }}
+                    </li>
+                {% endif %}
+                {% if selected_user.edu_person_affiliation %}
+                    <li>
+                        <strong>{% trans "Edu person affiliation" %}:</strong>
+                        {{ selected_user.edu_person_affiliation }}
+                    </li>
+                {% endif %}
+                {% if selected_user.im_org_zug_mitarbeiter %}
+                    <li>
+                        <strong>{% trans "Org Zug Mitarbeiter" %}:</strong>
+                        {{ selected_user.im_org_zug_mitarbeiter }}
+                    </li>
+                {% endif %}
+                {% if selected_user.im_org_zug_gast %}
+                    <li>
+                        <strong>{% trans "Org Zug Gast" %}:</strong>
+                        {{ selected_user.im_org_zug_gast }}
+                    </li>
+                {% endif %}
+                {% if selected_user.im_org_zug_student %}
+                    <li>
+                        <strong>{% trans "Org Zug Student" %}:</strong>
+                        {{ selected_user.im_org_zug_student }}
+                    </li>
+                {% endif %}
+                {% if selected_user.im_akademischer_grad %}
+                    <li>
+                        <strong>{% trans "Akademischer Grad" %}:</strong>
+                        {{ selected_user.im_akademischer_grad }}
+                    </li>
+                {% else %}
+                    <li>
+                        {% trans "No records related to the user" %}
+                    </li>
+                {% endif %}
+            </ul>
+
+            <h2 id="projects">{% trans "Projects created by the user" %}</h2>
+
+            <ul>
+                {% for project in projects %}
+                    <li>
+                        {{ project.name }}
+                    </li>
+                {% empty %}
+                    <li>
+                        {% trans "No records related to the user" %}
+                    </li>
+                {% endfor %}
+            </ul>
+
+            <h2 id="project-memberships">{% trans "Project memberships of the user" %}</h2>
+
+            <ul>
+                {% for project_membership in project_memberships %}
+                    <li>
+                        {{ project_membership.project.name }}
+                        <ul>
+                            <li>
+                                <strong>{% trans "Project admin" %}:</strong>
+                                {{ project_membership.is_project_admin }}
+                            </li>
+                            <li>
+                                <strong>{% trans "Folder creation" %}:</strong>
+                                {{ project_membership.can_create_folders }}
+                            </li>
+                            <li>
+                                <strong>{% trans "Metadata template admin" %}:</strong>
+                                {{ project_membership.is_metadata_template_admin }}
+                            </li>
+                        </ul>
+                    </li>
+                {% empty %}
+                    <li>
+                        {% trans "No records related to the user" %}
+                    </li>
+                {% endfor %}
+            </ul>
+
+            <h2 id="folders">{% trans "Folders created by the user" %}</h2>
+
+            {% regroup folders by project as folders_groups %}
+            <ul>
+                {% for project, folders_list in folders_groups %}
+                    <li>
+                        {{ project }}
+                        <ul>
+                            {% for folder in folders_list %}
+                                <li>
+                                  {{ folder.name }}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </li>
+                {% empty %}
+                    <li>
+                        {% trans "No records related to the user" %}
+                    </li>
+                {% endfor %}
+            </ul>
+
+            <h2 id="folder-permissions">{% trans "Folder permissions of the user" %}</h2>
+
+            {% regroup folder_permissions by project_membership.project as folder_permissions_groups %}
+            <ul>
+                {% for project, folder_permissions_list in folder_permissions_groups %}
+                    <li>
+                        {{ project }}
+                        <ul>
+                            {% for folder_permission in folder_permissions_list %}
+                                <li>
+                                    {{ folder_permission.folder.name }}
+                                    <ul>
+                                        <li>
+                                            <strong>{% trans "Folder admin" %}:</strong>
+                                            {{ folder_permission.is_folder_admin }}
+                                        </li>
+                                        <li>
+                                            <strong>{% trans "Edit allowed" %}:</strong>
+                                            {{ folder_permission.can_edit }}
+                                        </li>
+                                        <li>
+                                            <strong>{% trans "Metadata template admin" %}:</strong>
+                                            {{ folder_permission.is_metadata_template_admin }}
+                                        </li>
+                                    </ul>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </li>
+                {% empty %}
+                    <li>
+                        {% trans "No records related to the user" %}
+                    </li>
+                {% endfor %}
+            </ul>
+
+            <h2 id="uploads-datasets">{% trans "Uploads datasets created by the user" %}</h2>
+
+            {% regroup uploads_datasets by folder.project as uploads_datasets_projects_groups %}
+            {% regroup uploads_datasets by folder as uploads_datasets_folder_groups %}
+            <ul>
+                {% for project, uploads_datasets_list in uploads_datasets_projects_groups %}
+                    <li>
+                        {% if project %}
+                            {{ project }}
+                            {% for folder, _ in uploads_datasets_folder_groups %}
+                                {% if folder.project == project %}
+                                    <ul>
+                                        <li>
+                                            {{ folder }}
+                                            <ul>
+                                                {% for uploads_dataset in uploads_datasets_list %}
+                                                    {% if uploads_dataset.folder == folder %}
+                                                        <li>
+                                                            {{ uploads_dataset }}
+                                                        </li>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </ul>
+                                        </li>
+                                    </ul>
+                                {% endif %}
+                            {% endfor %}
+                        {% else %}
+                            {% trans "My drafts" %}
+                            <ul>
+                                {% for uploads_dataset in uploads_datasets_list %}
+                                    <li>
+                                        {{ uploads_dataset }}
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                    </li>
+                {% empty %}
+                    <li>
+                        {% trans "No records related to the user" %}
+                    </li>
+                {% endfor %}
+            </ul>
+
+            <h2 id="uploads-versions">{% trans "Uploads versions created by the user" %}</h2>
+
+            {% regroup uploads_versions by dataset.folder.project as uploads_versions_projects_groups %}
+            {% regroup uploads_versions by dataset.folder as uploads_versions_folder_groups %}
+            {% regroup uploads_versions by dataset as uploads_versions_dataset_groups %}
+            <ul>
+                {% for project, uploads_versions_list in uploads_versions_projects_groups %}
+                    <li>
+                        {% if project %}
+                            {{ project }}
+                            {% for folder, _ in uploads_versions_folder_groups %}
+                                {% if folder.project == project %}
+                                    <ul>
+                                        <li>
+                                            {{ folder }}
+                                            {% for dataset, _ in uploads_versions_dataset_groups %}
+                                                {% if dataset.folder == folder %}
+                                                    <ul>
+                                                        <li>
+                                                            {{ dataset }}
+                                                            <ul>
+                                                                {% for uploads_version in uploads_versions_list %}
+                                                                    {% if uploads_version.dataset == dataset %}
+                                                                        <li>
+                                                                            {{ uploads_version }}
+                                                                            {% for metadata in uploads_version.metadata.all %}
+                                                                                <ul>
+                                                                                    <li>
+                                                                                        {% trans "Metadata" %} {{ metadata }}
+                                                                                        <ul>
+                                                                                            {% if metadata.field %}
+                                                                                                <li>
+                                                                                                    <strong>{% trans "Field" %}:</strong>
+                                                                                                    {{ metadata.field }}
+                                                                                                </li>
+                                                                                            {% endif %}
+                                                                                            <li>
+                                                                                                <strong>{% trans "Custom key" %}:</strong>
+                                                                                                {{ metadata.custom_key }}
+                                                                                            </li>
+                                                                                            <li>
+                                                                                                <strong>{% trans "Field type" %}:</strong>
+                                                                                                {{ metadata.field_type }}
+                                                                                            </li>
+                                                                                            <li>
+                                                                                                <strong>{% trans "Readonly" %}:</strong>
+                                                                                                {{ metadata.read_only }}
+                                                                                            </li>
+                                                                                            {% if metadata.get_value %}
+                                                                                                <li>
+                                                                                                    <strong>{% trans "Value" %}:</strong>
+                                                                                                    {% if metadata.field_type == "WYSIWYG" %}
+                                                                                                        <pre style="display: inline">{{ metadata.get_value }}</pre>
+                                                                                                    {% else %}
+                                                                                                        {{ metadata.get_value }}
+                                                                                                    {% endif %}
+                                                                                                </li>
+                                                                                            {% endif %}
+                                                                                            {% if metadata.config %}
+                                                                                                <li>
+                                                                                                    <strong>{% trans "Config" %}:</strong>
+                                                                                                    <pre style="display: inline">{{ metadata.config }}</pre>
+                                                                                                </li>
+                                                                                            {% endif %}
+                                                                                            {% if metadata.previous_version_field %}
+                                                                                                <li>
+                                                                                                    <strong>{% trans "Previous version field" %}:</strong>
+                                                                                                    {{ metadata.previous_version_field }}
+                                                                                                </li>
+                                                                                            {% endif %}
+                                                                                        </ul>
+                                                                                    </li>
+                                                                                </ul>
+                                                                            {% endfor %}
+                                                                        </li>
+                                                                    {% endif %}
+                                                                {% endfor %}
+                                                            </ul>
+                                                        </li>
+                                                    </ul>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </li>
+                                    </ul>
+                                {% endif %}
+                            {% endfor %}
+                        {% else %}
+                            {% trans "My drafts" %}
+                            <ul>
+                                {% for uploads_dataset, uploads_versions_list in uploads_versions_list %}
+                                    <li>
+                                        {{ uploads_dataset }}
+                                        <ul>
+                                            {% for uploads_version in uploads_versions_list %}
+                                                <li>
+                                                    {{ uploads_version }}
+                                                    {% for metadata in uploads_version.metadata.all %}
+                                                        <ul>
+                                                            <li>
+                                                                {% trans "Metadata" %} {{ metadata }}
+                                                                <ul>
+                                                                    {% if metadata.field %}
+                                                                        <li>
+                                                                            <strong>{% trans "Field" %}:</strong>
+                                                                            {{ metadata.field }}
+                                                                        </li>
+                                                                    {% endif %}
+                                                                    <li>
+                                                                        <strong>{% trans "Custom key" %}:</strong>
+                                                                        {{ metadata.custom_key }}
+                                                                    </li>
+                                                                    <li>
+                                                                        <strong>{% trans "Field type" %}:</strong>
+                                                                        {{ metadata.field_type }}
+                                                                    </li>
+                                                                    <li>
+                                                                        <strong>{% trans "Readonly" %}:</strong>
+                                                                        {{ metadata.read_only }}
+                                                                    </li>
+                                                                    {% if metadata.get_value %}
+                                                                        <li>
+                                                                            <strong>{% trans "Value" %}:</strong>
+                                                                            {% if metadata.field_type == "WYSIWYG" %}
+                                                                                <pre style="display: inline">{{ metadata.get_value }}</pre>
+                                                                            {% else %}
+                                                                                {{ metadata.get_value }}
+                                                                            {% endif %}
+                                                                        </li>
+                                                                    {% endif %}
+                                                                    {% if metadata.config %}
+                                                                        <li>
+                                                                            <strong>{% trans "Config" %}:</strong>
+                                                                            <pre style="display: inline">{{ metadata.config }}</pre>
+                                                                        </li>
+                                                                    {% endif %}
+                                                                    {% if metadata.previous_version_field %}
+                                                                        <li>
+                                                                            <strong>{% trans "Previous version field" %}:</strong>
+                                                                            {{ metadata.previous_version_field }}
+                                                                        </li>
+                                                                    {% endif %}
+                                                                </ul>
+                                                            </li>
+                                                        </ul>
+                                                    {% endfor %}
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                    </li>
+                {% empty %}
+                    <li>
+                        {% trans "No records related to the user" %}
+                    </li>
+                {% endfor %}
+            </ul>
+
+            <h2 id="files">{% trans "Files uploaded by the user" %}</h2>
+
+            {% regroup uploads_version_files by get_folder.project as uploads_version_files_groups %}
+            <ul>
+                {% for project, uploads_version_files_list in uploads_version_files_groups %}
+                    <li>
+                        {% if project %}
+                            {{ project }}
+                            <ul>
+                                {% regroup uploads_version_files_list by get_folder as projects_groups %}
+                                {% for folder, uploads_version_files_list in projects_groups %}
+                                    <li>
+                                        {{ folder }}
+                                        <ul>
+                                            {% for uploads_version_file in uploads_version_files_list %}
+                                                <li>
+                                                    {{ uploads_version_file }}
+                                                    {% for metadata in uploads_version_file.metadata.all %}
+                                                        <ul>
+                                                            <li>
+                                                                {% trans "Metadata" %} {{ metadata }}
+                                                                <ul>
+                                                                    {% if metadata.field %}
+                                                                        <li>
+                                                                            <strong>{% trans "Field" %}:</strong>
+                                                                            {{ metadata.field }}
+                                                                        </li>
+                                                                    {% endif %}
+                                                                    <li>
+                                                                        <strong>{% trans "Custom key" %}:</strong>
+                                                                        {{ metadata.custom_key }}
+                                                                    </li>
+                                                                    <li>
+                                                                        <strong>{% trans "Field type" %}:</strong>
+                                                                        {{ metadata.field_type }}
+                                                                    </li>
+                                                                    <li>
+                                                                        <strong>{% trans "Readonly" %}:</strong>
+                                                                        {{ metadata.read_only }}
+                                                                    </li>
+                                                                    {% if metadata.field %}
+                                                                        <li>
+                                                                            <strong>{% trans "Value" %}:</strong>
+                                                                            {% if metadata.field_type == "WYSIWYG" %}
+                                                                                <pre style="display: inline">{{ metadata.get_value }}</pre>
+                                                                            {% else %}
+                                                                                {{ metadata.get_value }}
+                                                                            {% endif %}
+                                                                        </li>
+                                                                    {% endif %}
+                                                                    {% if metadata.config %}
+                                                                        <li>
+                                                                            <strong>{% trans "Config" %}:</strong>
+                                                                            <pre style="display: inline">{{ metadata.config }}</pre>
+                                                                        </li>
+                                                                    {% endif %}
+                                                                    {% if metadata.previous_version_field %}
+                                                                        <li>
+                                                                            <strong>{% trans "Previous version field" %}:</strong>
+                                                                            {{ metadata.previous_version_field }}
+                                                                        </li>
+                                                                    {% endif %}
+                                                                </ul>
+                                                            </li>
+                                                        </ul>
+                                                    {% endfor %}
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            {% trans "My drafts" %}
+                            <ul>
+                                {% for uploads_version_file in uploads_version_files_list %}
+                                    <li>
+                                        {{ uploads_version_file }}
+                                        {% for metadata in uploads_version_file.metadata.all %}
+                                            <ul>
+                                                <li>
+                                                    {% trans "Metadata" %} {{ metadata }}
+                                                    <ul>
+                                                        {% if metadata.field %}
+                                                            <li>
+                                                                <strong>{% trans "Field" %}:</strong>
+                                                                {{ metadata.field }}
+                                                            </li>
+                                                        {% endif %}
+                                                        <li>
+                                                            <strong>{% trans "Custom key" %}:</strong>
+                                                            {{ metadata.custom_key }}
+                                                        </li>
+                                                        <li>
+                                                            <strong>{% trans "Field type" %}:</strong>
+                                                            {{ metadata.field_type }}
+                                                        </li>
+                                                        <li>
+                                                            <strong>{% trans "Readonly" %}:</strong>
+                                                            {{ metadata.read_only }}
+                                                        </li>
+                                                        {% if metadata.get_value %}
+                                                            <li>
+                                                                <strong>{% trans "Value" %}:</strong>
+                                                                {% if metadata.field_type == "WYSIWYG" %}
+                                                                    <pre style="display: inline">{{ metadata.get_value }}</pre>
+                                                                {% else %}
+                                                                    {{ metadata.get_value }}
+                                                                {% endif %}
+                                                            </li>
+                                                        {% endif %}
+                                                        {% if metadata.config %}
+                                                            <li>
+                                                                <strong>{% trans "Config" %}:</strong>
+                                                                <pre style="display: inline">{{ metadata.config }}</pre>
+                                                            </li>
+                                                        {% endif %}
+                                                        {% if metadata.previous_version_field %}
+                                                            <li>
+                                                                <strong>{% trans "Previous version field" %}:</strong>
+                                                                {{ metadata.previous_version_field }}
+                                                            </li>
+                                                        {% endif %}
+                                                    </ul>
+                                                </li>
+                                            </ul>
+                                        {% endfor %}
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                    </li>
+                {% empty %}
+                    <li>
+                        {% trans "No records related to the user" %}
+                    </li>
+                {% endfor %}
+            </ul>
+
+            <h2 id="storages">{% trans "Storages created by the user" %}</h2>
+
+            <ul>
+                {% for storage in storages %}
+                    <li>
+                        {{ storage.name }} ({{ storage.storage_type }})
+                    </li>
+                {% empty %}
+                    <li>
+                        {% trans "No records related to the user" %}
+                    </li>
+                {% endfor %}
+            </ul>
+
+            <h2 id="metadata-templates">{% trans "Metadata templates created by the user" %}</h2>
+
+            {% regroup metadata_template_containers by assigned_to_content_object as metadata_template_containers_groups %}
+            <ul>
+                {% for content_object, metadata_template_containers_list in metadata_template_containers_groups %}
+                    <li>
+                        {% if content_object %}
+                            {{ content_object }}
+                        {% else %}
+                            {% trans "Global metadata template" %}
+                        {% endif %}
+                        <ul>
+                            {% for metadata_template_container in metadata_template_containers_list %}
+                                <li>
+                                    {{ metadata_template_container.name }}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </li>
+                {% empty %}
+                    <li>
+                        {% trans "No records related to the user" %}
+                    </li>
+                {% endfor %}
+            </ul>
+
+            <h2 id="metadata-template-versions">{% trans "Metadata template versions created by the user" %}</h2>
+
+            {% regroup metadata_templates by metadata_template_container as metadata_templates_groups %}
+            <ul>
+                {% for metadata_template_container, metadata_templates_list in metadata_templates_groups %}
+                    <li>
+                        {{ metadata_template_container }}
+                        <ul>
+                            {% for metadata_template in metadata_templates_list %}
+                                <li>
+                                    {% if metadata_template.name %}
+                                        {{ metadata_template.name }}
+                                    {% else %}
+                                        {{ metadata_template.creation_date }}
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </li>
+                {% empty %}
+                    <li>
+                        {% trans "No records related to the user" %}
+                    </li>
+                {% endfor %}
+            </ul>
+
+            <h2 id="metadata-template-version-fields">{% trans "Metadata template version fields created by the user" %}</h2>
+
+            {% regroup metadata_template_fields by metadata_template.metadata_template_container as metadata_template_fields_groups %}
+            <ul>
+                {% for metadata_template_container, metadata_template_fields_list in metadata_template_fields_groups %}
+                    <li>
+                        {{ metadata_template_container }}
+                        <ul>
+                            {% regroup metadata_template_fields_list by metadata_template as metadata_templates_groups %}
+                            {% for metadata_template, metadata_template_fields_grouped_list in metadata_templates_groups %}
+                                <li>
+                                    {{ metadata_template }}
+                                    {% for metadata_template_field in metadata_template_fields_grouped_list %}
+                                        <ul>
+                                            <li>
+                                                {% trans "Metadata template field" %} {{ metadata_template_field }}
+                                                <ul>
+                                                    {% if metadata_template_field.field %}
+                                                        <li>
+                                                            <strong>{% trans "Field" %}:</strong>
+                                                            {{ metadata_template_field.field }}
+                                                        </li>
+                                                    {% endif %}
+                                                    <li>
+                                                        <strong>{% trans "Custom key" %}:</strong>
+                                                        {{ metadata_template_field.custom_key }}
+                                                    </li>
+                                                    <li>
+                                                        <strong>{% trans "Field type" %}:</strong>
+                                                        {{ metadata_template_field.field_type }}
+                                                    </li>
+                                                    {% if metadata_template_field.get_value %}
+                                                        <li>
+                                                            <strong>{% trans "Value" %}:</strong>
+                                                            {% if metadata_template_field.field_type == "WYSIWYG" %}
+                                                                <pre style="display: inline">{{ metadata_template_field.get_value }}</pre>
+                                                            {% else %}
+                                                                {{ metadata_template_field.get_value }}
+                                                            {% endif %}
+                                                        </li>
+                                                    {% endif %}
+                                                    {% if metadata_template_field.config %}
+                                                        <li>
+                                                            <strong>{% trans "Config" %}:</strong>
+                                                            <pre style="display: inline">{{ metadata_template_field.config }}</pre>
+                                                        </li>
+                                                    {% endif %}
+                                                    <li>
+                                                        <strong>{% trans "Mandatory" %}:</strong>
+                                                        {{ metadata_template_field.mandatory }}
+                                                    </li>
+                                                    {% if metadata_template_field.previous_version_field %}
+                                                        <li>
+                                                            <strong>{% trans "Previous version field" %}:</strong>
+                                                            {{ metadata_template_field.previous_version_field }}
+                                                        </li>
+                                                    {% endif %}
+                                                </ul>
+                                            </li>
+                                        </ul>
+                                    {% endfor %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </li>
+                {% empty %}
+                    <li>
+                        {% trans "No records related to the user" %}
+                    </li>
+                {% endfor %}
+            </ul>
+
+            <div>
+                <input type="hidden" name="action" value="gdpr_export_selected_users">
+                <a href="{% if backlink %}{{ backlink }}{% else %}{% url 'admin:users_user_changelist' %}{% endif %}" class="button cancel-link" style="margin: 0">{% trans "Back" %}</a>
+            </div>
+        </form>
+    </div>
+{% endblock %}

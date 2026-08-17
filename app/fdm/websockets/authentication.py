@@ -1,10 +1,10 @@
 import logging
 
-from django.test import RequestFactory
-
-from rest_framework_jwt.serializers import VerifyAuthTokenSerializer
+from django.contrib.auth import get_user_model
 
 logger = logging.getLogger(__name__)
+
+User = get_user_model()
 
 
 def fake_rest_auth(auth_token, scope, *args, **kwargs):
@@ -12,16 +12,10 @@ def fake_rest_auth(auth_token, scope, *args, **kwargs):
     request = None
     if auth_token:
         try:
-            request_headers = dict()
-            request_headers["REQUEST_METHOD"] = "GET"
-            for header_name, header_value in scope["headers"]:
-                header_name = header_name.decode().upper().replace("-", "_")
-                request_headers["HTTP_" + header_name] = header_value.decode()
-            request_headers["HTTP_AUTHORIZATION"] = f"Token {auth_token}"
-            request = RequestFactory().request(**request_headers)
-            data = {"token": auth_token}
-            valid_data = VerifyAuthTokenSerializer().validate(data)
-            user = valid_data["user"]
+            from rest_framework_simplejwt.tokens import AccessToken
+
+            validated_token = AccessToken(auth_token)
+            user = User.objects.get(id=validated_token["user_id"])
         except Exception as e:
             logger.error(e)
     return user, request

@@ -1,8 +1,6 @@
-from django.urls import reverse
-
-from rest_framework import status
-
 import pytest
+from django.urls import reverse
+from rest_framework import status
 
 from fdm.cms.models.models import Content
 from fdm.core.helpers import set_request_for_user

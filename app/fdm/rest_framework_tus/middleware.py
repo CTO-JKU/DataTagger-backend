@@ -1,5 +1,4 @@
 from django.http.response import HttpResponse
-
 from rest_framework import status
 
 from . import constants, tus_api_version

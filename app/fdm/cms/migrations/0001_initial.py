@@ -1,11 +1,9 @@
 import uuid
 
 import django.db.models.deletion
+import django_userforeignkey.models.fields
 from django.conf import settings
 from django.db import migrations, models
-
-import django_userforeignkey.models.fields
-import martor
 
 
 class Migration(migrations.Migration):
@@ -25,8 +23,8 @@ class Migration(migrations.Migration):
                 ("name", models.CharField(db_index=True, max_length=128, verbose_name="Name of the content")),
                 ("slug", models.SlugField(max_length=40, verbose_name="URL slug for this content")),
                 ("publication_date", models.DateTimeField(blank=True, null=True, verbose_name="Publication date")),
-                ("text_de", martor.models.MartorField(blank=True, null=True, verbose_name="German text")),
-                ("text_en", martor.models.MartorField(blank=True, null=True, verbose_name="English Text")),
+                ("text_de", models.TextField(blank=True, null=True, verbose_name="German text")),
+                ("text_en", models.TextField(blank=True, null=True, verbose_name="English Text")),
                 (
                     "created_by",
                     django_userforeignkey.models.fields.UserForeignKey(

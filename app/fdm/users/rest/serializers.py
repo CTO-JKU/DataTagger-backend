@@ -1,8 +1,6 @@
 from django.contrib.auth import get_user_model
-
-from rest_framework import fields, serializers
-
 from drf_spectacular.utils import extend_schema_field
+from rest_framework import fields, serializers
 
 from fdm.core.helpers import get_or_create_user
 from fdm.core.rest.base import BaseModelSerializer
@@ -13,6 +11,7 @@ User = get_user_model()
 __all__ = [
     "GroupSerializer",
     "UserSerializer",
+    "UserSettingsUpdateSerializer",
     "MinimalUserSerializer",
     "GetOrCreateUserSerializer",
 ]
@@ -66,6 +65,7 @@ class UserSerializer(BaseModelSerializer):
             "im_titel_anrede",
             "im_titel_pre",
             "im_titel_post",
+            "settings",
         ]
 
     def get_full_name(self, instance) -> str:
@@ -81,6 +81,17 @@ class UserSerializer(BaseModelSerializer):
             permissions = permissions.union({"__is_superuser__"})
 
         return permissions
+
+
+class UserSettingsUpdateSerializer(BaseModelSerializer):
+    class Meta:
+        model = User
+        fields = ["settings"]
+
+    def validate_settings(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Settings value must be of type dict.")
+        return value
 
 
 class MinimalUserSerializer(UserSerializer):

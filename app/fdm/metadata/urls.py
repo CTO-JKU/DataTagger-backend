@@ -13,8 +13,16 @@ router.register(r"metadata-field", MetadataFieldViewSet, basename="metadata-fiel
 
 router.register(r"metadata", MetadataViewSet, basename="metadata")
 
+router.register(
+    r"metadata-template-container",
+    MetadataTemplateContainerViewSet,
+    basename="metadata-template-container",
+)
+
 router.register(r"metadata-template", MetadataTemplateViewSet, basename="metadata-template")
 
 router.register(r"metadata-template-field", MetadataTemplateFieldViewSet, basename="metadata-template-field")
+
+router.register(r"metadata-tag", MetadataTagViewSet, basename="metadata-tag")
 
 urlpatterns = []

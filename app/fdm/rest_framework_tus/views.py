@@ -5,7 +5,6 @@ from django.core.files import File
 from django.http import Http404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-
 from rest_framework import mixins, status
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.metadata import BaseMetadata
@@ -14,9 +13,8 @@ from rest_framework.viewsets import GenericViewSet
 
 from fdm.rest_framework_tus.parsers import TusUploadStreamParser
 
-from . import constants
-from . import settings as tus_settings
 from . import (
+    constants,
     signals,
     states,
     tus_api_checksum_algorithms,
@@ -24,6 +22,7 @@ from . import (
     tus_api_version,
     tus_api_version_supported,
 )
+from . import settings as tus_settings
 from .compat import reverse
 from .exceptions import Conflict
 from .models import get_upload_model
@@ -205,14 +204,10 @@ class TusCreateMixin(mixins.CreateModelMixin):
                     upload.save()
 
                     # Do the transitions only if we haven't started yet
-                    upload.start_receiving()
-                    upload.save()
-
-                    upload.start_saving()
-                    upload.save()
-
-                    upload.finish()
-                    upload.save()
+                    flow = upload.get_flow()
+                    flow.start_receiving()
+                    flow.start_saving()
+                    flow.finish()
 
                     # Store that we've completed our processing
                     upload._processing_complete = True
@@ -327,8 +322,8 @@ class TusPatchMixin(mixins.UpdateModelMixin):
 
         # Change state
         if upload.state == states.INITIAL:
-            upload.start_receiving()
-            upload.save()
+            flow = upload.get_flow()
+            flow.start_receiving()
 
         # Get chunk from request
         chunk_bytes = self.get_chunk(request)

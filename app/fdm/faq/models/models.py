@@ -102,9 +102,11 @@ class FAQ(BaseModel, ByUserMixin, TimestampMixin):
             "order",
         ]
 
-        unique_together = [
-            "question",
-            "category",
+        constraints = [
+            models.UniqueConstraint(
+                fields=["question", "category"],
+                name="unique_faq_question_category",
+            ),
         ]
 
     def __str__(self):

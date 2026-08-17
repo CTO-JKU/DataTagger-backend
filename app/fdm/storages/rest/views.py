@@ -1,8 +1,7 @@
-from rest_framework import mixins, status
-from rest_framework.response import Response
-
 from django_userforeignkey.request import get_current_user
 from drf_spectacular.utils import OpenApiExample, extend_schema
+from rest_framework import mixins, status
+from rest_framework.response import Response
 
 from fdm.core.rest.base import BaseModelViewSet
 from fdm.storages.models import DynamicStorage

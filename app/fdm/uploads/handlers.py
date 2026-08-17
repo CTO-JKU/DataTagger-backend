@@ -4,10 +4,11 @@ import os
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
-
+from django.utils.translation import gettext_lazy as _
 from django_userforeignkey.request import get_current_user
 
 from fdm.file_parser.models import FileInformationParser
@@ -16,6 +17,7 @@ from fdm.rest_framework_tus.signals import finished
 from fdm.storages.models import DynamicStorage
 from fdm.uploads.helpers import create_uploads_version_with_new_file_for_dataset
 from fdm.uploads.models import UploadsDataset, UploadsVersion, UploadsVersionFile
+from fdm.uploads.tasks import schedule_metadata_template_upgrade_availability
 
 logger = logging.getLogger(__name__)
 
@@ -29,26 +31,50 @@ def save_finished_tus_upload_as_uploads_version_file(sender, instance, **kwargs)
     if not instance.dataset:
         return
 
+    upload_metadata = instance.upload_metadata or {}
+
     try:
-        upload_metadata = json.loads(instance.upload_metadata)
+        if isinstance(upload_metadata, str):
+            upload_metadata = json.loads(upload_metadata)
+        elif not isinstance(upload_metadata, dict):
+            upload_metadata = {}
 
         create_uploads_version_with_new_file_for_dataset(
             dataset=instance.dataset,
+            name=_("File upload of {file}").format(
+                file=upload_metadata.get("filename", instance.uploaded_file.name),
+            ),
             uploaded_file=instance.uploaded_file,
             uploaded_using_tus=True,
             original_file_name=upload_metadata.get("filename", None),
             original_file_path=upload_metadata.get("filepath", None),
         )
 
-        instance.dataset.unlock()
-
         if instance.dataset.folder:
             instance.dataset.publish()
+    except Exception:
+        logger.exception(
+            "Failed to complete file upload for upload '%s' and dataset '%s'",
+            instance.pk,
+            instance.dataset.pk,
+        )
 
-        # Delete the Upload instance after a successful upload to also trigger the tmp file cleanup
-        instance.delete()
-    except Exception as e:
-        logger.error(f"Failed to complete file upload: {e}")
+        try:
+            instance.dataset.status = UploadsDataset.Status.ERROR
+            instance.dataset.save()
+        except Exception:
+            logger.exception("Could not mark dataset '%s' as errored", instance.dataset.pk)
+    finally:
+        try:
+            instance.dataset.unlock()
+        except Exception:
+            logger.exception("Could not unlock dataset '%s' after upload '%s'", instance.dataset.pk, instance.pk)
+
+        # Always delete finished uploads to ensure deterministic tmp-file cleanup.
+        try:
+            instance.delete()
+        except Exception:
+            logger.exception("Could not delete finished upload '%s'", instance.pk)
 
 
 @receiver(pre_save, sender=UploadsDataset)
@@ -61,32 +87,77 @@ def set_expiry_date_for_dataset(sender, instance, **kwargs):
         instance.expiry_date = timezone.now() + timezone.timedelta(days=settings.DRAFT_FILES_MAX_LIFETIME)
 
 
+@receiver(pre_save, sender=UploadsDataset)
+def pre_save_uploads_dataset_metadata_template(sender, instance, *args, **kwargs):
+    # If the instance is created, then we don't need to check anything
+    if instance.pk is None:
+        return
+
+    # Get the old value for this instance field if it already exists, else abort
+    try:
+        old_instance = UploadsDataset.objects.get(pk=instance.pk)
+    except UploadsDataset.DoesNotExist:
+        return
+
+    # Check if the value has been changed for this instance field
+    if old_instance.metadata_template == instance.metadata_template:
+        return
+
+    instance.metadata_upgrade_availability_status = UploadsDataset.Status.SCHEDULED
+    instance._schedule_metadata_template_upgrade_availability = True
+
+
+@receiver(post_save, sender=UploadsDataset)
+def post_save_uploads_dataset_metadata_template(sender, instance, *args, **kwargs):
+    if not getattr(instance, "_schedule_metadata_template_upgrade_availability", False):
+        return
+
+    del instance._schedule_metadata_template_upgrade_availability
+    schedule_metadata_template_upgrade_availability([instance.pk])
+
+
 @receiver(pre_delete, sender=UploadsDataset)
 def prevent_deleting_published_or_someone_elses_uploads_datasets(sender, instance, **kwargs):
     current_user = get_current_user()
 
-    if current_user.can_hard_delete_datasets:
+    if getattr(current_user, "can_hard_delete_datasets", False):
         return
 
-    if instance.publication_date:
-        raise PermissionDenied
+    if instance.locked and not instance.is_locked_by_myself():
+        raise PermissionDenied(_("You must not delete an uploads dataset which has been locked by another user."))
 
-    if instance.created_by != get_current_user():
-        raise PermissionDenied
+    if instance.publication_date and (
+        not instance.deletable_until_date
+        or instance.deletable_until_date
+        and timezone.now() > instance.deletable_until_date
+    ):
+        raise PermissionDenied("You must not delete an uploads dataset outside the deletable window.")
+
+    if instance.created_by != current_user:
+        raise PermissionDenied(_("You must not delete an uploads dataset which has been created by another user."))
 
 
 @receiver(pre_delete, sender=UploadsVersion)
 def prevent_deleting_published_or_someone_elses_uploads_versions(sender, instance, **kwargs):
     current_user = get_current_user()
 
-    if current_user.can_hard_delete_datasets:
+    if getattr(current_user, "can_hard_delete_datasets", False):
         return
 
-    if instance.publication_date:
-        raise PermissionDenied
+    dataset = instance.dataset
 
-    if instance.created_by != get_current_user():
-        raise PermissionDenied
+    if dataset.locked and not dataset.is_locked_by_myself():
+        raise PermissionDenied(_("You must not delete an uploads version which has been locked by another user."))
+
+    if dataset.publication_date and (
+        not dataset.deletable_until_date
+        or dataset.deletable_until_date
+        and timezone.now() > dataset.deletable_until_date
+    ):
+        raise PermissionDenied("You must not delete an uploads version outside the deletable window.")
+
+    if instance.created_by != current_user:
+        raise PermissionDenied(_("You must not delete an uploads version which has been created by another user."))
 
 
 def change_file_metadata(version_file: UploadsVersionFile):
@@ -163,7 +234,7 @@ def auto_create_dataset_for_uploads_version(sender, instance, **kwargs):
 
 @receiver(pre_save, sender=UploadsVersion)
 def prevent_editing_already_published_versions(sender, instance, **kwargs):
-    # If the uploads version is created then we don't need to check anything
+    # If the uploads version is created, then we don't need to check anything
     if instance.pk is None:
         return
 
@@ -187,24 +258,84 @@ def prevent_editing_already_published_versions(sender, instance, **kwargs):
     if is_allowed_to_apply_changes_to_already_published_uploads_version(instance, uploads_version):
         return
 
-    raise PermissionDenied
+    raise PermissionDenied(_("You must not edit an uploads version that has already been published."))
+
+
+@receiver(post_save, sender=UploadsVersion)
+def reset_deletable_until_date_on_foreign_version(sender, instance, **kwargs):
+    dataset = instance.dataset
+    current_user = get_current_user()
+
+    if not dataset:
+        return
+
+    if not dataset.deletable_until_date:
+        return
+
+    if not current_user or dataset.created_by == current_user:
+        return
+
+    UploadsDataset.objects.filter(
+        pk=dataset.pk,
+    ).update(
+        deletable_until_date=None,
+    )
+
+
+@receiver(post_save, sender=UploadsVersion)
+def post_save_uploads_version_update_uploads_dataset_versions_count(sender, instance, *args, **kwargs):
+    if not getattr(instance.dataset, "_is_being_deleted", False):
+        instance.dataset.update_uploads_versions_count()
+
+
+@receiver(post_delete, sender=UploadsVersion)
+def post_delete_uploads_version_update_uploads_dataset_versions_count(sender, instance, *args, **kwargs):
+    try:
+        if instance.dataset and not getattr(instance.dataset, "_is_being_deleted", False):
+            instance.dataset.update_uploads_versions_count()
+    except UploadsDataset.DoesNotExist:
+        pass
 
 
 @receiver(pre_delete, sender=UploadsVersionFile)
 def prevent_deleting_published_or_someone_elses_uploads_version_files(sender, instance, **kwargs):
     current_user = get_current_user()
 
-    if current_user.can_hard_delete_datasets:
+    if getattr(current_user, "can_hard_delete_datasets", False):
         return
 
-    if instance.publication_date:
-        raise PermissionDenied
+    if not instance.uploads_versions.exists():
+        return
 
-    if instance.created_by != get_current_user():
-        raise PermissionDenied
+    dataset = instance.uploads_versions.first().dataset
+
+    if dataset.locked and not dataset.is_locked_by_myself():
+        raise PermissionDenied(_("You must not delete an uploads version file which has been locked by another user."))
+
+    if dataset.publication_date and (
+        not dataset.deletable_until_date
+        or dataset.deletable_until_date
+        and timezone.now() > dataset.deletable_until_date
+    ):
+        raise PermissionDenied("You must not delete an uploads version file outside the deletable window.")
+
+    if instance.created_by != current_user:
+        raise PermissionDenied(_("You must not delete an uploads version file which has been created by another user."))
 
 
 @receiver(post_delete, sender=UploadsVersionFile)
 def delete_files_after_uploads_version_file_deletion(sender, instance, *args, **kwargs):
-    if instance.uploaded_file and os.path.exists(instance.uploaded_file.path):
-        os.remove(instance.uploaded_file.path)
+    if not instance.uploaded_file:
+        return
+
+    # Capture the path now — by the time on_commit fires, `instance` may be gone
+    # or its FieldFile may raise. Defer the filesystem removal until the enclosing
+    # transaction commits so a rolled-back DB cascade cannot leave a deleted file
+    # on disk with a surviving dataset/version row.
+    path = instance.uploaded_file.path
+
+    def _remove_file():
+        if os.path.exists(path):
+            os.remove(path)
+
+    transaction.on_commit(_remove_file)

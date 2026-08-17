@@ -3,10 +3,9 @@ import datetime
 import os
 import sys
 
-from django.utils.translation import gettext_lazy as _
-
 import environ
 from dateutil.relativedelta import relativedelta
+from django.utils.translation import gettext_lazy as _
 
 ########################################################################################################################
 # Django Settings
@@ -72,16 +71,45 @@ CHANNEL_LAYERS = {
 ASGI_APPLICATION = "fdm.asgi.application"
 
 # EMail Settings
-# https://docs.djangoproject.com/en/4.2/ref/settings/#email-backend
+# https://docs.djangoproject.com/en/5.2/ref/settings/#email-backend
 EMAIL_CONFIG = env.email_url("EMAIL_URL", default="smtp://user@:password@localhost:25")
 vars().update(EMAIL_CONFIG)
 
-EMAIL_SENDER = env("EMAIL_SENDER", default="noreply@domain.com")
+EMAIL_SENDER = env("EMAIL_SENDER", default="noreply@example.com")
 
 # Celery and RabbitMQ Config
 CELERY_BROKER_URL = env("CELERY_BROKER_URL")
 CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND")
 CELERY_MAX_FILE_PARSER_TASKS_PER_INTERVAL = env.int("CELERY_MAX_FILE_PARSER_TASKS_PER_INTERVAL", default=250)
+UPLOADED_FILE_PROCESSING_LEASE_SECONDS = env.int("UPLOADED_FILE_PROCESSING_LEASE_SECONDS", default=3600)
+UPLOADED_FILE_PROCESSING_LEGACY_GRACE_SECONDS = env.int(
+    "UPLOADED_FILE_PROCESSING_LEGACY_GRACE_SECONDS",
+    default=300,
+)
+METADATA_TEMPLATE_PROCESSING_LEASE_SECONDS = env.int(
+    "METADATA_TEMPLATE_PROCESSING_LEASE_SECONDS",
+    default=3600,
+)
+METADATA_TEMPLATE_PROCESSING_RECONCILIATION_BATCH_SIZE = env.int(
+    "METADATA_TEMPLATE_PROCESSING_RECONCILIATION_BATCH_SIZE",
+    default=250,
+)
+METADATA_TEMPLATE_PROCESSING_LEGACY_GRACE_SECONDS = env.int(
+    "METADATA_TEMPLATE_PROCESSING_LEGACY_GRACE_SECONDS",
+    default=300,
+)
+METADATA_TEMPLATE_PROCESSING_RETRY_BACKOFF_SECONDS = env.int(
+    "METADATA_TEMPLATE_PROCESSING_RETRY_BACKOFF_SECONDS",
+    default=5,
+)
+METADATA_TEMPLATE_PROCESSING_AVAILABILITY_MAX_RETRIES = env.int(
+    "METADATA_TEMPLATE_PROCESSING_AVAILABILITY_MAX_RETRIES",
+    default=2,
+)
+CELERY_RECOMPUTE_STORAGE_SIZE_DEBOUNCE_SECONDS = env.int(
+    "CELERY_RECOMPUTE_STORAGE_SIZE_DEBOUNCE_SECONDS",
+    default=30,
+)
 
 # Application definition
 INSTALLED_APPS = [
@@ -98,8 +126,8 @@ INSTALLED_APPS = [
     "corsheaders",
     "django_filters",
     "rest_framework",
-    "rest_framework_jwt",
-    "rest_framework_jwt.blacklist",
+    "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
     "django_rest_passwordreset",
     # Django UserForeignKey
     "django_userforeignkey",
@@ -109,14 +137,14 @@ INSTALLED_APPS = [
     # Miscellaneous
     "adminsortable2",
     "waffle",
-    # Markdown Editor
-    "martor",
     # Encrypted model fields
     "django_fernet",
     # App
     "fdm.core",
+    "fdm.dashboard",
     "fdm.dbsettings",
     "fdm.faq",
+    "fdm.exports",
     "fdm.file_parser",
     "fdm.folders",
     "fdm.metadata",
@@ -175,7 +203,7 @@ WSGI_APPLICATION = "wsgi.application"
 
 
 # Password validation
-# https://docs.djangoproject.com/en/4.2/topics/auth/passwords/#password-validation
+# https://docs.djangoproject.com/en/5.2/topics/auth/passwords/#password-validation
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -227,7 +255,7 @@ USE_I18N = True
 USE_TZ = True
 
 # Static files (CSS, JavaScript, Images) and other paths
-# https://docs.djangoproject.com/en/4.2/howto/static-files/
+# https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 # Static Root: by default this is in the public directory in a sub-directory called static
 STATIC_ROOT = project_root(
@@ -246,12 +274,12 @@ FRONTEND_WEB_URL = env("FRONTEND_WEB_URL", default="http://0.0.0.0:3000")
 
 
 # Where Django should look for fixtures
-# https://docs.djangoproject.com/en/4.2/howto/initial-data/
+# https://docs.djangoproject.com/en/5.2/howto/initial-data/
 FIXTURE_DIRS = (os.path.join(BASE_DIR, "fixtures/"),)
 
 
 # Logging
-# https://docs.djangoproject.com/en/4.2/topics/logging/
+# https://docs.djangoproject.com/en/5.2/topics/logging/
 
 LOGGING = {
     "version": 1,
@@ -366,8 +394,8 @@ REST_FRAMEWORK = {
 
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "FDM",
-    "DESCRIPTION": "Documenation of FDM",
+    "TITLE": "TUM DataTagger",
+    "DESCRIPTION": "Overview of the available API endpoints for TUM DataTagger",
     "VERSION": "1.0.0",
     "OAS_VERSION": "3.1.0",
     "SWAGGER_UI_DIST": "SIDECAR",
@@ -376,17 +404,17 @@ SPECTACULAR_SETTINGS = {
 }
 
 # JWT Auth
-# https://github.com/Styria-Digital/django-rest-framework-jwt
+# https://django-rest-framework-simplejwt.readthedocs.io/
 
-JWT_AUTH = {
-    "JWT_RESPONSE_PAYLOAD_HANDLER": "fdm.core.rest.payloads.jwt_response_payload_handler",
-    "JWT_VERIFY": True,
-    "JWT_VERIFY_EXPIRATION": True,
-    "JWT_EXPIRATION_DELTA": datetime.timedelta(days=7),
-    "JWT_ALLOW_REFRESH": True,
-    "JWT_REFRESH_EXPIRATION_DELTA": datetime.timedelta(days=365),
-    "JWT_AUTH_COOKIE": "token",
-    "JWT_AUTH_COOKIE_SECURE": env.bool("JWT_AUTH_COOKIE_SECURE", default=False),
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": datetime.timedelta(days=7),
+    "REFRESH_TOKEN_LIFETIME": datetime.timedelta(days=365),
+    "ROTATE_REFRESH_TOKENS": False,
+    "BLACKLIST_AFTER_ROTATION": False,
+    "AUTH_COOKIE": "token",
+    "AUTH_COOKIE_SECURE": env.bool("JWT_AUTH_COOKIE_SECURE", default=False),
+    "AUTH_COOKIE_HTTP_ONLY": True,
+    "AUTH_COOKIE_SAMESITE": "Lax",
 }
 
 
@@ -488,75 +516,6 @@ DRAFT_FILES_MAX_LIFETIME = 30  # days
 
 SHIBBOLETH_AUTH_CODE_MAX_LIFESPAN = env.int("SHIBBOLETH_AUTH_CODE_MAX_LIFESPAN", default=300)
 
-
-# Choices are: "semantic", "bootstrap"
-MARTOR_THEME = "bootstrap"
-
-# Global martor settings
-# Input: string boolean, `true/false`
-MARTOR_ENABLE_CONFIGS = {
-    "emoji": "false",  # to enable/disable emoji icons.
-    "imgur": "false",  # to enable/disable imgur/custom uploader.
-    "mention": "false",  # to enable/disable mention
-    "jquery": "true",  # to include/revoke jquery (require for admin default django)
-    "living": "false",  # to enable/disable live updates in preview
-    "spellcheck": "false",  # to enable/disable spellcheck in form textareas
-    "hljs": "true",  # to enable/disable hljs highlighting in preview
-}
-
-# To show the toolbar buttons
-MARTOR_TOOLBAR_BUTTONS = [
-    "bold",
-    "italic",
-    "horizontal",
-    "heading",
-    "pre-code",
-    "blockquote",
-    "unordered-list",
-    "ordered-list",
-    "link",
-    "image-link",
-    "toggle-maximize",
-    "help",
-]
-
-# To setup the martor editor with title label or not (default is False)
-MARTOR_ENABLE_LABEL = True
-
-# Disable admin style when using custom admin interface e.g django-grappelli (default is True)
-MARTOR_ENABLE_ADMIN_CSS = False
-
-# Markdownify
-MARTOR_MARKDOWNIFY_FUNCTION = "martor.utils.markdownify"  # default
-MARTOR_MARKDOWNIFY_URL = "/martor/markdownify/"  # default
-
-MARTOR_MARKDOWNIFY_TIMEOUT = 1000  # default
-
-# Markdown extensions (default)
-MARTOR_MARKDOWN_EXTENSIONS = [
-    "markdown.extensions.extra",
-    "markdown.extensions.nl2br",
-    "markdown.extensions.smarty",
-    "markdown.extensions.fenced_code",
-    "markdown.extensions.sane_lists",
-    # Custom markdown extensions.
-    "martor.extensions.urlize",
-    "martor.extensions.del_ins",  # ~~strikethrough~~ and ++underscores++
-    "martor.extensions.mdx_video",  # to parse embed/iframe video
-    "martor.extensions.escape_html",  # to handle the XSS vulnerabilities
-]
-
-# Markdown Extensions Configs
-MARTOR_MARKDOWN_EXTENSION_CONFIGS = {}
-
-# Markdown urls
-MARTOR_UPLOAD_URL = ""  # Completely disable the endpoint
-
-MARTOR_SEARCH_USERS_URL = ""  # Completely disables the endpoint
-
-# Markdown Extensions
-MARTOR_MARKDOWN_BASE_EMOJI_URL = ""  # Completely disables the endpoint
-MARTOR_MARKDOWN_BASE_MENTION_URL = ""  # Completely disables the endpoint
 
 # URL schemes that are allowed within links
 ALLOWED_URL_SCHEMES = [

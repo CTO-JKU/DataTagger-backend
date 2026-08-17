@@ -1,0 +1,76 @@
+{% extends "admin/base_site.html" %}
+{% load static i18n admin_urls %}
+
+{% block extrastyle %}
+    {{ block.super }}
+    <link rel="stylesheet" type="text/css" href="{% static "uploads/admin/delete_confirmation.css" %}" />
+{% endblock %}
+
+{% block content %}
+    <div class="delete-confirmation">
+        <form method="post" {% if selected_datasets %}action="{% url 'admin:uploads_uploadsdataset_changelist' %}"{% endif %}>
+            {% csrf_token %}
+
+            {% if selected_datasets %}
+                <h1>{% trans "Are you sure?" %}</h1>
+
+                <p>
+                    {% blocktrans %}
+                        Are you sure you want to delete all of the following uploads datasets? This action cannot be undone!
+                    {% endblocktrans %}
+                </p>
+
+                <h2>{% trans "Summary" %}</h2>
+
+                <ul>
+                    {% for selected_dataset in selected_datasets %}
+                        <li>
+                            {{ selected_dataset }}
+                            <input type="hidden" name="_selected_action" value="{{ selected_dataset.pk }}" />
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>
+                    {% blocktrans with object_name=object_name %}
+                        Are you sure you want to delete the {{ object_name }} "{{ object }}"? This action cannot be undone!
+                    {% endblocktrans %}
+                </p>
+
+                {% if deleted_objects %}
+                    <h2>{% trans "Summary" %}</h2>
+                    <ul>
+                        {{ deleted_objects|unordered_list }}
+                    </ul>
+                {% endif %}
+
+                {% if perms_lacking and not request.user.can_hard_delete_datasets %}
+                    <p>{% trans "You don't have permission to delete the following types of objects:" %}</p>
+                    <ul>
+                        {% for perm in perms_lacking %}
+                            <li>{{ perm }}</li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+
+                {% if protected and not request.user.can_hard_delete_datasets %}
+                    <p>{% trans "The following objects are protected and cannot be deleted:" %}</p>
+                    <ul>
+                        {{ protected|unordered_list }}
+                    </ul>
+                {% endif %}
+            {% endif %}
+
+            <div>
+                {% if selected_datasets %}
+                    <input type="hidden" name="action" value="bulk_delete_selected">
+                    <input type="submit" name="apply" value="{% trans "Yes, I’m sure" %}">
+                {% else %}
+                    <input type="hidden" name="post" value="yes">
+                    <input type="submit" value="{% trans "Yes, I'm sure" %}">
+                {% endif %}
+                <a href="{% if selected_datasets %}{% if backlink %}{{ backlink }}{% else %}{% url 'admin:uploads_uploadsdataset_changelist' %}{% endif %}{% else %}{% url 'admin:uploads_uploadsdataset_change' object.pk %}{% endif %}" class="button cancel-link">{% trans "No, take me back" %}</a>
+            </div>
+        </form>
+    </div>
+{% endblock %}

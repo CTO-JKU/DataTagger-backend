@@ -1,7 +1,6 @@
+import pytest
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
-
-import pytest
 
 from fdm.dbsettings.functions import get_dbsettings_value, set_dbsettings_value
 from fdm.users.models import User, get_contact_email
@@ -119,16 +118,16 @@ class TestUserModel:
         """
         Ensure we get the correct classification of a user based on the top level domain of his email address.
         """
-        user_1_internal = User.objects.create_user("user_1_internal", "user_1_internal@test.internal", "password")
-        user_2_internal = User.objects.create_user("user_2_internal", "user_2_internal@test.internal2", "password")
-        user_3_external = User.objects.create_user("user_3_external", "user_3_external@test.external", "password")
+        user_1_internal = User.objects.create_user("user_1_internal", "user_1_internal@corp.org", "password")
+        user_2_internal = User.objects.create_user("user_2_internal", "user_2_internal@corp2.org", "password")
+        user_3_external = User.objects.create_user("user_3_external", "user_3_external@external.com", "password")
 
         assert get_dbsettings_value("INTERNAL_TLDS", "") == ""
         assert user_1_internal.is_internal_user is False
         assert user_2_internal.is_internal_user is False
         assert user_3_external.is_internal_user is False
 
-        internal_tlds = "test.internal\ntest.internal2"
+        internal_tlds = "corp.org\ncorp2.org"
         set_dbsettings_value("INTERNAL_TLDS", internal_tlds)
 
         assert get_dbsettings_value("INTERNAL_TLDS", "") == internal_tlds
@@ -136,7 +135,7 @@ class TestUserModel:
         assert user_2_internal.is_internal_user is True
         assert user_3_external.is_internal_user is False
 
-        internal_tlds = " @test.internal, @test.internal2 "
+        internal_tlds = " @corp.org, @corp2.org "
         set_dbsettings_value("INTERNAL_TLDS", internal_tlds)
 
         assert get_dbsettings_value("INTERNAL_TLDS", "") == internal_tlds
@@ -148,16 +147,16 @@ class TestUserModel:
         """
         Ensure we get the correct classification of a user based on the top level domain of his email address.
         """
-        user_1_internal = User.objects.create_user("user_1_internal", "user_1_internal@test.internal", "password")
-        user_2_internal = User.objects.create_user("user_2_internal", "user_2_internal@test.internal2", "password")
-        user_3_external = User.objects.create_user("user_3_external", "user_3_external@test.external", "password")
+        user_1_internal = User.objects.create_user("user_1_internal", "user_1_internal@corp.org", "password")
+        user_2_internal = User.objects.create_user("user_2_internal", "user_2_internal@corp2.org", "password")
+        user_3_external = User.objects.create_user("user_3_external", "user_3_external@external.com", "password")
 
         assert get_dbsettings_value("INTERNAL_TLDS", "") == ""
         assert user_1_internal.is_external_user is True
         assert user_2_internal.is_external_user is True
         assert user_3_external.is_external_user is True
 
-        internal_tlds = "test.internal\ntest.internal2"
+        internal_tlds = "corp.org\ncorp2.org"
         set_dbsettings_value("INTERNAL_TLDS", internal_tlds)
 
         assert get_dbsettings_value("INTERNAL_TLDS", "") == internal_tlds
@@ -165,10 +164,37 @@ class TestUserModel:
         assert user_2_internal.is_external_user is False
         assert user_3_external.is_external_user is True
 
-        internal_tlds = " @test.internal, @test.internal2 "
+        internal_tlds = " @corp.org, @corp2.org "
         set_dbsettings_value("INTERNAL_TLDS", internal_tlds)
 
         assert get_dbsettings_value("INTERNAL_TLDS", "") == internal_tlds
         assert user_1_internal.is_external_user is False
         assert user_2_internal.is_external_user is False
         assert user_3_external.is_external_user is True
+
+    def test_settings_field(self, initial_users):
+        """
+        Ensure the settings field returns JSON data as a dict
+        """
+        user_1 = initial_users["user_1"]
+
+        user_1.settings = {
+            "custom_key": "custom_value",
+            "some_boolean": True,
+        }
+        user_1.save()
+
+        assert user_1.settings.get("custom_key", None) == "custom_value"
+        assert user_1.settings.get("some_boolean", None) is True
+
+        user_1.settings = ""
+        user_1.save()
+        assert user_1.settings == {}
+
+        user_1.settings = None
+        user_1.save()
+        assert user_1.settings == {}
+
+        with pytest.raises(ValidationError):
+            user_1.settings = "string value"
+            user_1.save()

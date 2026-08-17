@@ -41,7 +41,7 @@ DOCKER_VOLUME_SOURCE="${DOCKER_VOLUME_PREFIX}_${SOURCE_VOLUME_NAME}"
 DOCKER_VOLUME_CLONE="${DOCKER_VOLUME_PREFIX}_${SOURCE_VOLUME_NAME}_${GIT_BRANCH}"
 
 # quit all active docker sessions
-docker-compose down
+docker compose down
 
 # change to script path
 cd "$SCRIPTPATH" || exit
@@ -49,13 +49,13 @@ cd "$SCRIPTPATH" || exit
 # execute clone script
 ./clone_docker_volume.sh "$DOCKER_VOLUME_SOURCE" "$DOCKER_VOLUME_CLONE"
 
-# create docker-compose override file
+# create docker compose override file
 if $CREATE_DOCKER_COMPOSE_OVERRIDE_FILE
 then
   # change to project root path
   cd "$ROOTPATH" || exit
 
-  # create docker-compose override file with correct volume names
+  # create docker compose override file with correct volume names
   cat > docker-compose.override.yml << _EOF_
 volumes:
   $GIT_BRANCH:

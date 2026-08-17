@@ -1,12 +1,10 @@
+import django_filters
 from rest_framework import authentication, filters, pagination, permissions, serializers, viewsets
 from rest_framework.utils.field_mapping import get_url_kwargs
 from rest_framework.viewsets import GenericViewSet
 
-import django_filters
-from rest_framework_jwt import authentication as jwt_authentication
-
+from fdm.core.rest.authentication import JWTCookieAuthentication
 from fdm.core.rest.relations import ContextHyperlinkedIdentityField
-from fdm.core.utils.permissions import get_permission_name
 
 __all__ = [
     "BaseFilter",
@@ -36,7 +34,7 @@ class BaseFilter(django_filters.FilterSet):
 
 class BaseGenericViewSet(viewsets.GenericViewSet):
     authentication_classes = (
-        jwt_authentication.JSONWebTokenAuthentication,
+        JWTCookieAuthentication,
         authentication.SessionAuthentication,
     )
     permission_classes = (permissions.IsAuthenticated,)
@@ -49,7 +47,7 @@ class BaseModelViewSet(GenericViewSet):
         filters.OrderingFilter,
     )
     authentication_classes = (
-        jwt_authentication.JSONWebTokenAuthentication,
+        JWTCookieAuthentication,
         authentication.SessionAuthentication,
     )
     permission_classes = (permissions.IsAuthenticated,)

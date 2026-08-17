@@ -9,8 +9,7 @@ __all__ = [
 
 router = get_api_router()
 
-# Register your routes here
-# Example: router.register(r"users", UserViewSet)
+router.register(r"file-parser-configuration", FileParserConfigurationViewSet, basename="file-parser-configuration")
 
 
 urlpatterns = []

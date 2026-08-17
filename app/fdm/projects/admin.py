@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from fdm.projects.filters import HasMemberWithCanCreateProjectsPermissionFilter
 from fdm.projects.models import Project, ProjectMembership
 
 __all__ = [
@@ -21,6 +22,7 @@ class ProjectAdmin(admin.ModelAdmin):
 
     list_filter = [
         "is_deletable",
+        HasMemberWithCanCreateProjectsPermissionFilter,
         "created_by",
     ]
 

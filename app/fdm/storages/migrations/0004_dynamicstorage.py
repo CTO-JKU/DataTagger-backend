@@ -3,11 +3,10 @@
 import uuid
 
 import django.db.models.deletion
-from django.conf import settings
-from django.db import migrations, models
-
 import django_fernet.fields
 import django_userforeignkey.models.fields
+from django.conf import settings
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):

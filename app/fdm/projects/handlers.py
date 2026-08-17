@@ -1,7 +1,7 @@
 from django.core.exceptions import PermissionDenied
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
-
+from django.utils.translation import gettext_lazy as _
 from django_userforeignkey.request import get_current_user
 
 from fdm.folders.helpers import set_folder_admin_permissions
@@ -11,6 +11,7 @@ from fdm.metadata.models import MetadataTemplate
 from fdm.projects.helpers import set_project_admin_permissions
 from fdm.projects.models import Project, ProjectMembership
 from fdm.uploads.models import UploadsDataset
+from fdm.uploads.tasks import schedule_metadata_template_upgrade_availability
 
 
 def is_last_project_admin(instance) -> bool:
@@ -38,7 +39,7 @@ def prevent_deletion_of_last_project_admin(sender, instance, *args, **kwargs):
         return
 
     if is_last_project_admin(instance):
-        raise PermissionDenied
+        raise PermissionDenied(_("You must not delete the last project admin."))
 
 
 @receiver(pre_save, sender=ProjectMembership)
@@ -53,24 +54,55 @@ def prevent_update_removal_of_last_project_admin(sender, instance, *args, **kwar
         and not instance.is_project_admin
         and is_last_project_admin(original_membership)
     ):
-        raise PermissionDenied
+        raise PermissionDenied(_("You must not delete the last project admin."))
 
 
 @receiver(pre_delete, sender=Project)
 def pre_delete(sender, instance, **kwargs):
-    # Project must not be deleted if there are folders linked to it which are not empty.
+    # Project must not be deleted if there are folders linked to it that are not empty.
     datasets = UploadsDataset.objects.filter(
         folder__project=instance,
     )
 
     if datasets.exists():
-        raise PermissionDenied
+        raise PermissionDenied(_("You must not delete projects with datasets in them."))
 
 
 @receiver(pre_save, sender=Project)
 def pre_save_project_description(sender, instance, *args, **kwargs):
     if not instance.description:
         instance.description = {}
+
+
+@receiver(pre_save, sender=Project)
+def pre_save_project_metadata_template(sender, instance, *args, **kwargs):
+    # If the instance is created, then we don't need to check anything
+    if instance.pk is None:
+        return
+
+    # Get the old value for this instance field if it already exists, else abort
+    try:
+        old_instance = Project.objects.get(pk=instance.pk)
+    except Project.DoesNotExist:
+        return
+
+    # Check if the value has been changed for this instance field
+    if old_instance.metadata_template == instance.metadata_template:
+        return
+
+    instance._schedule_metadata_template_upgrade_availability = True
+
+
+@receiver(post_save, sender=Project)
+def post_save_project_metadata_template(sender, instance, *args, **kwargs):
+    if not getattr(instance, "_schedule_metadata_template_upgrade_availability", False):
+        return
+
+    del instance._schedule_metadata_template_upgrade_availability
+    dataset_ids = UploadsDataset.objects.filter(
+        folder__project=instance,
+    ).values_list("pk", flat=True)
+    schedule_metadata_template_upgrade_availability(dataset_ids)
 
 
 @receiver(pre_save, sender=ProjectMembership)
@@ -166,7 +198,7 @@ def send_email_notification_for_new_project_membership(sender, instance, created
 
 @receiver(pre_save, sender=ProjectMembership)
 def send_email_notification_for_changed_project_membership(sender, instance, **kwargs):
-    # If the project membership is created then we don't need to check anything
+    # If the project membership is created, then we don't need to check anything
     if instance.pk is None:
         return
 
@@ -198,25 +230,35 @@ def send_email_notification_for_deleted_project_membership(sender, instance, *ar
 
 @receiver(folder_datasets_count_updated, sender=Folder)
 def set_project_deletable_status(sender, instance, *args, **kwargs):
-    instance.project.is_deletable = not bool(instance.datasets_count)
+    instance.project.is_deletable = not UploadsDataset.objects.filter(
+        folder__project=instance.project,
+    ).exists()
     instance.project.save()
 
 
 @receiver(post_save, sender=MetadataTemplate)
 def post_save_metadata_template_update_project_metadata_templates_count(sender, instance, *args, **kwargs):
     # We are currently intentionally ignoring global templates
-    if isinstance(instance.assigned_to_content_object, Project):
-        instance.assigned_to_content_object.update_metadata_templates_count()
+    if instance.metadata_template_container and isinstance(
+        instance.metadata_template_container.assigned_to_content_object,
+        Project,
+    ):
+        instance.metadata_template_container.assigned_to_content_object.refresh_from_db()
+        instance.metadata_template_container.assigned_to_content_object.update_metadata_templates_count()
 
-        for folder in instance.assigned_to_content_object.folders.all():
+        for folder in instance.metadata_template_container.assigned_to_content_object.folders.all():
             folder.update_metadata_templates_count()
 
 
 @receiver(post_delete, sender=MetadataTemplate)
 def post_delete_metadata_template_update_project_metadata_templates_count(sender, instance, *args, **kwargs):
     # We are currently intentionally ignoring global templates
-    if isinstance(instance.assigned_to_content_object, Project):
-        instance.assigned_to_content_object.update_metadata_templates_count()
+    if instance.metadata_template_container and isinstance(
+        instance.metadata_template_container.assigned_to_content_object,
+        Project,
+    ):
+        instance.metadata_template_container.assigned_to_content_object.refresh_from_db()
+        instance.metadata_template_container.assigned_to_content_object.update_metadata_templates_count()
 
-        for folder in instance.assigned_to_content_object.folders.all():
+        for folder in instance.metadata_template_container.assigned_to_content_object.folders.all():
             folder.update_metadata_templates_count()

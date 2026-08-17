@@ -11,6 +11,7 @@ def mock_logger(mocker):
     return mocker.patch("fdm.core.tasks.logger")
 
 
+@pytest.mark.django_db
 def test_send_mail_via_celery(mocker, mock_logger):
     subject = "Test Subject"
     message = "Test message"

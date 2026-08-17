@@ -2,7 +2,6 @@ from django.core.exceptions import PermissionDenied
 from django.db.models.query import QuerySet
 from django.http import Http404
 from django.shortcuts import get_list_or_404, get_object_or_404
-
 from django_userforeignkey.request import get_current_user
 
 from fdm.core.utils.permissions import get_permission_name

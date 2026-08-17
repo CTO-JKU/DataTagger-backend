@@ -1,15 +1,16 @@
 from django.db.models import Q, Subquery
-
+from django.utils import timezone
 from rest_framework import permissions
 
 from fdm.folders.models import FolderPermission
-from fdm.metadata.models import MetadataTemplate
+from fdm.metadata.models import MetadataTemplate, MetadataTemplateContainer
 from fdm.projects.models import ProjectMembership
 
 __all__ = [
     "can_view_in_folder",
     "can_edit_in_folder",
     "is_project_admin",
+    "is_folder_admin",
     "is_project_metadata_template_admin",
     "is_folder_metadata_template_admin",
     "CanCreateProject",
@@ -26,11 +27,13 @@ __all__ = [
     "IsFolderMetadataTemplateAdmin",
     "CanEditInFolder",
     "CanCreateDataset",
+    "CanDeleteDataset",
     "CanCreateDatasetVersion",
     "CanViewFolder",
     "CanViewInFolder",
     "CanEditMetadataTemplate",
     "CanDeleteProjectMembership",
+    "CanEditMetadataTemplateContainer",
 ]
 
 
@@ -54,6 +57,14 @@ def is_project_admin(user, project):
         member=user,
         project=project,
         is_project_admin=True,
+    ).exists()
+
+
+def is_folder_admin(user, folder):
+    return FolderPermission.objects.filter(
+        folder=folder,
+        project_membership__member=user,
+        is_folder_admin=True,
     ).exists()
 
 
@@ -167,11 +178,7 @@ class CanCreateFolderPermission(permissions.BasePermission):
 
 class IsFolderAdmin(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
-        return FolderPermission.objects.filter(
-            folder=obj,
-            project_membership__member=request.user,
-            is_folder_admin=True,
-        ).exists()
+        return is_folder_admin(request.user, obj)
 
 
 class IsFolderAdminForPermission(permissions.BasePermission):
@@ -219,20 +226,28 @@ class CanCreateDataset(permissions.BasePermission):
 
 
 class CanDeleteDataset(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated)
+
     def has_object_permission(self, request, view, obj):
         from fdm.uploads.models import UploadsDataset
 
+        if getattr(request.user, "can_hard_delete_datasets", False):
+            return True
+
         query = Q(
-            publication_date__isnull=True,
             created_by=request.user,
         )
 
-        # TODO: In the future it should be possible to mark published dataset for deletion.
-        #  Uncomment to enable this feature.
-        # if obj.folder:
-        #     query |= Q(
-        #         folder__folderpermission__project_membership__member=request.user,
-        #     )
+        if obj.publication_date:
+            query &= Q(
+                deletable_until_date__isnull=False,
+                deletable_until_date__gte=timezone.now(),
+            )
+        else:
+            query &= Q(
+                publication_date__isnull=True,
+            )
 
         return UploadsDataset.objects.filter(query).filter(pk=obj.pk).exists()
 
@@ -269,8 +284,70 @@ class CanEditMetadataTemplate(permissions.BasePermission):
 
         from fdm.folders.models import Folder, FolderPermission
         from fdm.projects.models import Project, ProjectMembership
+        from fdm.uploads.models import UploadsDataset
 
         # Project metadata templates
+        query = Q(
+            metadata_template_container__assigned_to_content_type=ContentType.objects.get_for_model(Project),
+            metadata_template_container__assigned_to_object_id__in=Subquery(
+                ProjectMembership.objects.filter(
+                    member=request.user,
+                    is_metadata_template_admin=True,
+                ).values_list(
+                    "project__pk",
+                    flat=True,
+                ),
+            ),
+        )
+
+        # Folder metadata templates
+        query |= Q(
+            metadata_template_container__assigned_to_content_type=ContentType.objects.get_for_model(Folder),
+            metadata_template_container__assigned_to_object_id__in=Subquery(
+                FolderPermission.objects.filter(
+                    project_membership__member=request.user,
+                    is_metadata_template_admin=True,
+                ).values_list(
+                    "folder__pk",
+                    flat=True,
+                ),
+            ),
+        )
+
+        # Uploads dataset metadata templates
+        query |= Q(
+            metadata_template_container__assigned_to_content_type=ContentType.objects.get_for_model(UploadsDataset),
+            metadata_template_container__assigned_to_object_id__in=Subquery(
+                UploadsDataset.objects.filter(
+                    folder__folderpermission__project_membership__member=request.user,
+                    folder__folderpermission__can_edit=True,
+                    folder__folderpermission__is_metadata_template_admin=True,
+                ).values_list(
+                    "pk",
+                    flat=True,
+                ),
+            ),
+        )
+
+        # Global metadata templates
+        if request.user.is_authenticated and request.user.is_global_metadata_template_admin:
+            query |= Q(
+                metadata_template_container__assigned_to_content_type__isnull=True,
+                metadata_template_container__assigned_to_object_id__isnull=True,
+            )
+
+        return MetadataTemplate.objects.filter(query).filter(pk=obj.pk).exists()
+
+
+class CanEditMetadataTemplateContainer(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
+        from django.contrib.contenttypes.models import ContentType
+
+        from fdm.folders.models import Folder, FolderPermission
+        from fdm.projects.models import Project, ProjectMembership
+        from fdm.uploads.models import UploadsDataset
+
+        # Project metadata template container
         query = Q(
             assigned_to_content_type=ContentType.objects.get_for_model(Project),
             assigned_to_object_id__in=Subquery(
@@ -284,7 +361,7 @@ class CanEditMetadataTemplate(permissions.BasePermission):
             ),
         )
 
-        # Folder metadata templates
+        # Folder metadata template container
         query |= Q(
             assigned_to_content_type=ContentType.objects.get_for_model(Folder),
             assigned_to_object_id__in=Subquery(
@@ -298,11 +375,26 @@ class CanEditMetadataTemplate(permissions.BasePermission):
             ),
         )
 
-        # Global metadata templates
+        # Uploads dataset metadata template container
+        query |= Q(
+            assigned_to_content_type=ContentType.objects.get_for_model(UploadsDataset),
+            assigned_to_object_id__in=Subquery(
+                UploadsDataset.objects.filter(
+                    folder__folderpermission__project_membership__member=request.user,
+                    folder__folderpermission__can_edit=True,
+                    folder__folderpermission__is_metadata_template_admin=True,
+                ).values_list(
+                    "pk",
+                    flat=True,
+                ),
+            ),
+        )
+
+        # Global metadata template container
         if request.user.is_authenticated and request.user.is_global_metadata_template_admin:
             query |= Q(
                 assigned_to_content_type__isnull=True,
                 assigned_to_object_id__isnull=True,
             )
 
-        return MetadataTemplate.objects.filter(query).filter(pk=obj.pk).exists()
+        return MetadataTemplateContainer.objects.filter(query).filter(pk=obj.pk).exists()

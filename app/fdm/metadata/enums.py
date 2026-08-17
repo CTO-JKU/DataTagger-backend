@@ -15,3 +15,5 @@ class MetadataFieldType(models.TextChoices):
     TEXT = "TEXT", _("Text")
     WYSIWYG = "WYSIWYG", _("WYSIWYG editor")
     SELECTION = "SELECTION", _("Selection")
+    MULTI_SELECTION = "MULTI_SELECTION", _("Multi selection")
+    TAG = "TAG", _("Tag")
