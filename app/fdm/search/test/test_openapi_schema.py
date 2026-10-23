@@ -142,6 +142,7 @@ def test_openapi_search_result_item_is_typed_union(openapi_schema):
     expected_refs = {
         "#/components/schemas/ProjectSearch",
         "#/components/schemas/FolderSearch",
+        "#/components/schemas/SubfolderSearch",
         "#/components/schemas/UploadsDatasetSearch",
         "#/components/schemas/UploadsVersionSearch",
         "#/components/schemas/UploadsVersionFileSearch",
@@ -157,6 +158,7 @@ def test_openapi_compact_search_schemas_are_included(openapi_schema):
 
     assert "CompactProjectItem" in schemas
     assert "CompactFolderItem" in schemas
+    assert "CompactSubfolderItem" in schemas
     assert "CompactDatasetItem" in schemas
     assert "CompactDatasetVersionItem" in schemas
     assert "CompactFileItem" in schemas
@@ -166,7 +168,7 @@ def test_openapi_compact_search_schemas_are_included(openapi_schema):
 
     item_schema = schemas["CompactSearchResultItem"]
     assert "oneOf" in item_schema
-    assert len(item_schema["oneOf"]) == 7
+    assert len(item_schema["oneOf"]) == 8
 
 
 def test_openapi_search_schema_has_no_custom_search_ref_components(openapi_schema):

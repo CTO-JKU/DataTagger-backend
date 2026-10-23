@@ -149,7 +149,7 @@ class Metadata(BaseModel, TimestampMixin, ByUserMixin, OrderMixin):
         if self.get_value() is not None:
             self.is_valid(raise_exception=True)
 
-        from fdm.folders.models import Folder
+        from fdm.folders.models import Folder, Subfolder
         from fdm.projects.models import Project
         from fdm.uploads.models import UploadsVersion, UploadsVersionFile
 
@@ -159,6 +159,7 @@ class Metadata(BaseModel, TimestampMixin, ByUserMixin, OrderMixin):
             allowed_content_models=[
                 Project,
                 Folder,
+                Subfolder,
                 UploadsVersion,
                 UploadsVersionFile,
             ],

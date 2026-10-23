@@ -34,6 +34,12 @@ __all__ = [
     "FolderPermissionUpdateSerializer",
     "FolderPermissionSerializer",
     "MinimalFolderSerializer",
+    "MinimalSubfolderSerializer",
+    "SubfolderSerializer",
+    "SubfolderCreateSerializer",
+    "SubfolderUpdateSerializer",
+    "SubfolderMetadataPayloadSerializer",
+    "SubfolderSearchSerializer",
 ]
 
 
@@ -544,3 +550,137 @@ class FolderPermissionSerializer(BaseModelSerializer):
             "is_metadata_template_admin",
             "can_edit",
         ]
+
+
+class MinimalSubfolderSerializer(BaseModelSerializer):
+    class Meta:
+        model = Subfolder
+        fields = [
+            "pk",
+            "name",
+        ]
+
+
+class SubfolderMetadataPayloadSerializer(serializers.Serializer):
+    # Same format as the metadata of folders and files: custom_key, field_type, value and config per entry
+    metadata = MetadataPayloadSerializer()
+
+    def validate_metadata(self, value):
+        keys = []
+
+        for entry in value:
+            if not isinstance(entry, dict):
+                raise serializers.ValidationError("Invalid metadata entry.")
+
+            key = (entry.get("custom_key") or "").strip()
+            if not key:
+                raise serializers.ValidationError("Please name every metadata field.")
+
+            keys.append(key.lower())
+
+        if len(set(keys)) != len(keys):
+            raise serializers.ValidationError("Each field name can only be used once.")
+
+        return [
+            {
+                "custom_key": entry["custom_key"].strip(),
+                "field_type": entry.get("field_type") or MetadataFieldType.TEXT,
+                "value": entry.get("value"),
+                "config": entry.get("config") or {},
+                "order": order,
+            }
+            for order, entry in enumerate(value)
+        ]
+
+
+class SubfolderSerializer(BaseModelWithByUserSerializer):
+    path = serializers.SerializerMethodField()
+
+    metadata = MinimalMetadataSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    datasets_count = serializers.SerializerMethodField()
+
+    subfolders_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Subfolder
+        fields = [
+            "pk",
+            "folder",
+            "parent",
+            "name",
+            "path",
+            "datasets_count",
+            "subfolders_count",
+            "metadata",
+        ]
+
+    @extend_schema_field(MinimalSubfolderSerializer(many=True))
+    def get_path(self, obj):
+        return MinimalSubfolderSerializer(obj.get_path(), many=True).data
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_datasets_count(self, obj):
+        annotated = getattr(obj, "datasets_count_annotated", None)
+        if annotated is not None:
+            return annotated
+        return obj.uploads_dataset.filter(publication_date__isnull=False).count()
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_subfolders_count(self, obj):
+        annotated = getattr(obj, "subfolders_count_annotated", None)
+        if annotated is not None:
+            return annotated
+        return obj.children.count()
+
+
+class SubfolderCreateSerializer(BaseModelSerializer):
+    class Meta:
+        model = Subfolder
+        fields = [
+            "folder",
+            "parent",
+            "name",
+        ]
+
+
+class SubfolderUpdateSerializer(BaseModelSerializer):
+    class Meta:
+        model = Subfolder
+        fields = [
+            "parent",
+            "name",
+        ]
+        extra_kwargs = {
+            "name": {
+                "required": False,
+            },
+        }
+
+
+class SubfolderSearchSerializer(BaseModelWithByUserSerializer):
+    folder = FolderSearchSerializer()
+
+    path = serializers.SerializerMethodField()
+
+    metadata = MinimalMetadataSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    class Meta:
+        model = Subfolder
+        fields = [
+            "pk",
+            "name",
+            "folder",
+            "path",
+            "metadata",
+        ]
+
+    @extend_schema_field(MinimalSubfolderSerializer(many=True))
+    def get_path(self, obj):
+        return MinimalSubfolderSerializer(obj.get_path(), many=True).data

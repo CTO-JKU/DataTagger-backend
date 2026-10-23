@@ -15,7 +15,7 @@ from fdm.core.helpers import check_empty_value
 from fdm.core.models import BaseModel, ByUserMixin, LockMixin, TimestampMixin
 from fdm.core.rest.permissions import can_edit_in_folder
 from fdm.dbsettings.functions import get_dbsettings_value
-from fdm.folders.models import Folder
+from fdm.folders.models import Folder, Subfolder
 from fdm.metadata.helpers import get_metadata_structure_for_type, set_metadata_for_relation, validate_metadata
 from fdm.metadata.models import Metadata, MetadataTemplate, MetadataTemplateContainer, MetadataTemplateField
 from fdm.storages.fields import DynamicRuntimeStorageFileField
@@ -93,6 +93,14 @@ class UploadsDataset(BaseModel, TimestampMixin, ByUserMixin, LockMixin):
         null=True,
         related_name="uploads_dataset",
         on_delete=models.CASCADE,
+    )
+
+    subfolder = models.ForeignKey(
+        Subfolder,
+        blank=True,
+        null=True,
+        related_name="uploads_dataset",
+        on_delete=models.SET_NULL,
     )
 
     status = models.CharField(
@@ -638,7 +646,7 @@ class UploadsDataset(BaseModel, TimestampMixin, ByUserMixin, LockMixin):
 
         return list({metadata_template for metadata_template in metadata_templates})
 
-    def publish(self, folder: Folder | str = None):
+    def publish(self, folder: Folder | str = None, subfolder: Subfolder | str = None):
         from fdm.uploads.helpers import create_uploads_version_with_new_metadata_for_dataset
 
         if not folder and not self.folder:
@@ -652,6 +660,9 @@ class UploadsDataset(BaseModel, TimestampMixin, ByUserMixin, LockMixin):
 
         if folder:
             self.folder_id = folder.pk if isinstance(folder, Folder) else folder
+
+        if subfolder:
+            self.subfolder_id = subfolder.pk if isinstance(subfolder, Subfolder) else subfolder
 
         if not can_edit_in_folder(
             user=self.created_by,
@@ -896,6 +907,9 @@ class UploadsDataset(BaseModel, TimestampMixin, ByUserMixin, LockMixin):
                     user.update_storage_size()
 
     def clean(self):
+        if self.subfolder and self.subfolder.folder_id != self.folder_id:
+            raise ValidationError(_("The subfolder must belong to the folder of the dataset."))
+
         # Make sure that the metadata template container of the active metadata template is not already an active
         # metadata template container elsewhere in the hierarchy of project > folder > dataset.
         if (

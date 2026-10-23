@@ -45,6 +45,7 @@ urlpatterns = [
     path("", include("fdm.exports.urls")),
     path("", include("fdm.faq.urls")),
     path("", include("fdm.file_parser.urls")),
+    path("", include("fdm.elabftw.urls")),
     path("", include("fdm.folders.urls")),
     path("", include("fdm.metadata.urls")),
     path("", include("fdm.projects.urls")),

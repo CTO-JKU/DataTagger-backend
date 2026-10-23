@@ -2166,10 +2166,11 @@ class TestSearchAPI:
         assert "sort_fields" not in response.data
         assert "default_sort" not in response.data
 
-        # All 7 result types have entries
+        # All 8 result types have entries
         expected_types = {
             "project",
             "folder",
+            "subfolder",
             "dataset",
             "dataset_version",
             "file",

@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db.models import Q, Subquery
 from django.utils import timezone
 from rest_framework import permissions
@@ -34,6 +35,8 @@ __all__ = [
     "CanEditMetadataTemplate",
     "CanDeleteProjectMembership",
     "CanEditMetadataTemplateContainer",
+    "can_manage_subfolders_in_folder",
+    "CanManageSubfolders",
 ]
 
 
@@ -398,3 +401,33 @@ class CanEditMetadataTemplateContainer(permissions.BasePermission):
             )
 
         return MetadataTemplateContainer.objects.filter(query).filter(pk=obj.pk).exists()
+
+
+def can_manage_subfolders_in_folder(user, folder_pk):
+    """
+    Subfolders are organisational only, so everybody who may add files to a folder may also manage its subfolders.
+    """
+    try:
+        return FolderPermission.objects.filter(
+            Q(can_edit=True) | Q(is_folder_admin=True),
+            project_membership__member=user,
+            folder=folder_pk,
+        ).exists()
+    except (ValueError, ValidationError):
+        return False
+
+
+class CanManageSubfolders(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if request.method in permissions.SAFE_METHODS or getattr(view, "action", None) != "create":
+            return True
+
+        folder_pk = request.data.get("folder", None)
+
+        return bool(folder_pk) and can_manage_subfolders_in_folder(request.user, folder_pk)
+
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+
+        return can_manage_subfolders_in_folder(request.user, obj.folder_id)

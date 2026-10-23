@@ -23,8 +23,9 @@ from django.utils.translation import gettext_lazy as _
 from fdm.core.helpers import get_content_type_for_model, get_content_type_for_object, get_content_type_instance
 from fdm.core.rest.permissions import can_view_in_folder
 from fdm.dbsettings.functions import get_dbsettings_value
+from fdm.elabftw.models import ExperimentLink
 from fdm.exports.models import ExportJob, MetadataTemplateExportJob
-from fdm.folders.models import Folder
+from fdm.folders.models import Folder, Subfolder
 from fdm.metadata.models import Metadata, MetadataTemplateContainer
 from fdm.projects.models import Project
 from fdm.uploads.models import UploadsDataset, UploadsVersion, UploadsVersionFile
@@ -49,6 +50,8 @@ __all__ = [
 ALLOWED_EXPORT_MODELS = [
     Project,
     Folder,
+    Subfolder,
+    ExperimentLink,
     UploadsDataset,
     UploadsVersion,
 ]
@@ -67,6 +70,11 @@ class ExportVersion:
     version: UploadsVersion
     directories: list[DirectoryComponent]
     use_dataset_filename: bool
+    # Holds the dataset's own files and its metadata sidecars
+    dataset_directory: DirectoryComponent | None = None
+    # Files-only exports of folder structures skip the dataset directory, so the archive mirrors the original
+    # directory structure (e.g. of uploaded NMR experiments)
+    skip_dataset_directory_without_metadata: bool = False
 
 
 class ZipNameRegistry:
@@ -379,6 +387,13 @@ def build_export_zip_file(export_job: ExportJob) -> str:
 
     try:
         with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+            # Evaluation exports of eLabFTW experiments keep the folder structure and add one metadata file per experiment
+            if normalize_export_type(export_job.export_type)[1] == ExperimentLink:
+                from fdm.elabftw.exports import write_experiment_export
+
+                write_experiment_export(archive, export_versions, export_job, registry)
+                export_versions = []
+
             for export_version in export_versions:
                 _write_export_version(
                     archive=archive,
@@ -514,7 +529,7 @@ def _get_export_zip_file_name(export_job: ExportJob) -> str:
     app_title = get_dbsettings_value("APP_TITLE", "FDM")
     export_date = timezone.localtime(export_job.creation_date).strftime("%Y-%m-%d %H-%M-%S")
     stem = sanitize_component(
-        f"{app_title} {model.__name__} export from {export_date}",
+        f"{app_title} {'Evaluation' if model == ExperimentLink else model.__name__} export from {export_date}",
         fallback="export",
     )
 
@@ -583,6 +598,14 @@ def _get_viewable_queryset(model, user):
     if model == Folder:
         return Folder.objects.filter(folderpermission__project_membership__member=user).distinct()
 
+    if model == Subfolder:
+        return Subfolder.objects.filter(folder__folderpermission__project_membership__member=user).distinct()
+
+    if model == ExperimentLink:
+        from fdm.elabftw.permissions import get_viewable_experiment_links
+
+        return get_viewable_experiment_links(user)
+
     if model == UploadsDataset:
         return UploadsDataset.objects.filter(
             Q(publication_date__isnull=True, created_by=user)
@@ -611,7 +634,7 @@ def _collect_export_versions(export_type: str, export_objects: list, user) -> li
             ).order_by("name")
 
             for folder in folders:
-                export_versions += _collect_dataset_versions(
+                export_versions += _collect_subfolder_dataset_versions(
                     UploadsDataset.objects.filter(
                         folder=folder,
                         publication_date__isnull=False,
@@ -621,13 +644,30 @@ def _collect_export_versions(export_type: str, export_objects: list, user) -> li
 
     elif model == Folder:
         for folder in export_objects:
-            export_versions += _collect_dataset_versions(
+            export_versions += _collect_subfolder_dataset_versions(
                 UploadsDataset.objects.filter(
                     folder=folder,
                     publication_date__isnull=False,
                 ).order_by("name", "creation_date"),
                 [_directory_component(folder, fallback=_("Folder"))],
             )
+
+    elif model == Subfolder:
+        for subfolder in export_objects:
+            export_versions += _collect_subfolder_dataset_versions(
+                UploadsDataset.objects.filter(
+                    folder=subfolder.folder,
+                    subfolder__in=subfolder.get_descendant_pks(),
+                    publication_date__isnull=False,
+                ).order_by("name", "creation_date"),
+                [],
+                root_subfolder=subfolder,
+            )
+
+    elif model == ExperimentLink:
+        from fdm.elabftw.exports import collect_experiment_export_versions
+
+        export_versions += collect_experiment_export_versions(export_objects)
 
     elif model == UploadsDataset:
         export_versions += _collect_dataset_versions(export_objects, [])
@@ -656,10 +696,45 @@ def _collect_dataset_versions(datasets, base_directories: list[DirectoryComponen
         export_versions.append(
             ExportVersion(
                 version=latest_version,
-                directories=[*base_directories, _directory_component(dataset, fallback=_("Dataset"))],
+                directories=list(base_directories),
                 use_dataset_filename=True,
+                dataset_directory=_directory_component(dataset, fallback=_("Dataset")),
             ),
         )
+
+    return export_versions
+
+
+def _collect_subfolder_dataset_versions(
+    datasets,
+    base_directories: list[DirectoryComponent],
+    root_subfolder: Subfolder | None = None,
+) -> list[ExportVersion]:
+    """
+    Places each dataset below the directories of its subfolder path. When exporting a single subfolder, the path
+    starts at that subfolder instead of the top level of the folder.
+    """
+    export_versions = []
+    directories_by_subfolder = {}
+
+    for dataset in datasets:
+        directories = list(base_directories)
+
+        if dataset.subfolder_id:
+            if dataset.subfolder_id not in directories_by_subfolder:
+                path = dataset.subfolder.get_path()
+                if root_subfolder:
+                    path = path[[subfolder.pk for subfolder in path].index(root_subfolder.pk) :]
+
+                directories_by_subfolder[dataset.subfolder_id] = [
+                    _directory_component(subfolder, fallback=_("Subfolder")) for subfolder in path
+                ]
+
+            directories += directories_by_subfolder[dataset.subfolder_id]
+
+        for export_version in _collect_dataset_versions([dataset], directories):
+            export_version.skip_dataset_directory_without_metadata = True
+            export_versions.append(export_version)
 
     return export_versions
 
@@ -674,7 +749,12 @@ def _write_export_version(
 ) -> None:
     version = export_version.version
     version_file = version.version_file
-    parent = _build_parent_path(export_version.directories, registry)
+    directories = export_version.directories
+    if export_version.dataset_directory and (
+        include_uploads_version_file_metadata or not export_version.skip_dataset_directory_without_metadata
+    ):
+        directories = [*directories, export_version.dataset_directory]
+    parent = _build_parent_path(directories, registry)
 
     if include_uploads_version_file:
         file_name = _get_export_file_name(export_version)

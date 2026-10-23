@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError
-from django.db.models import Subquery
+from django.db import transaction
+from django.db.models import Count, Q, Subquery
 from django.utils.translation import gettext_lazy as _
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
@@ -13,20 +14,23 @@ from fdm.core.rest.mixins import *
 from fdm.core.rest.permissions import (
     CanCreateFolderPermission,
     CanCreateFolders,
+    CanManageSubfolders,
     CanViewFolder,
     IsFolderAdmin,
     IsFolderAdminForPermission,
 )
 from fdm.folders.helpers import add_folder_permissions_for_users
 from fdm.folders.models import *
-from fdm.folders.rest.filter import FolderFilter, FolderPermissionFilter
+from fdm.folders.rest.filter import FolderFilter, FolderPermissionFilter, SubfolderFilter
 from fdm.folders.rest.serializers import *
+from fdm.metadata.helpers import set_metadata_for_relation
 from fdm.metadata.models import MetadataTemplateContainer
 from fdm.metadata.rest.serializers import MetadataTemplateContainerSerializer, MetadataTemplateSerializer
 
 __all__ = [
     "FolderViewSet",
     "FolderPermissionViewSet",
+    "SubfolderViewSet",
 ]
 
 
@@ -492,3 +496,192 @@ class FolderPermissionViewSet(
     def partial_update(self, request, *args, **kwargs):
         kwargs["partial"] = True
         return super().update(request, *args, **kwargs)
+
+
+@extend_schema(
+    parameters=[
+        OpenApiParameter("search", exclude=True),
+    ],
+)
+class SubfolderViewSet(
+    BaseModelViewSet,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+):
+    queryset = Subfolder.objects.none()
+
+    serializer_class = SubfolderSerializer
+
+    serializer_action_classes = {
+        "create": SubfolderCreateSerializer,
+        "update": SubfolderUpdateSerializer,
+        "partial_update": SubfolderUpdateSerializer,
+    }
+
+    throttle_classes = []
+
+    filterset_class = SubfolderFilter
+
+    filterset_fields = []
+
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.OrderingFilter,
+    ]
+
+    pagination_class = None
+
+    ordering_fields = [
+        "name",
+        "creation_date",
+    ]
+
+    ordering = [
+        "name",
+    ]
+
+    permission_classes_by_action = {
+        "create": [IsAuthenticated, CanManageSubfolders],
+        "list": [IsAuthenticated],
+        "retrieve": [IsAuthenticated],
+        "update": [IsAuthenticated, CanManageSubfolders],
+        "partial_update": [IsAuthenticated, CanManageSubfolders],
+        "destroy": [IsAuthenticated, CanManageSubfolders],
+        "metadata": [IsAuthenticated, CanManageSubfolders],
+    }
+
+    def get_serializer_class(self):
+        try:
+            return self.serializer_action_classes[self.action]
+        except (KeyError, AttributeError):
+            return super().get_serializer_class()
+
+    def get_permissions(self):
+        return [permission() for permission in self.permission_classes_by_action.get(self.action, [])]
+
+    def get_queryset(self):
+        """
+        Gets the queryset for the view set
+        :return:
+        """
+        return (
+            Subfolder.objects.filter(
+                folder__in=Subquery(
+                    FolderPermission.objects.filter(
+                        project_membership__member=self.request.user,
+                    ).values_list(
+                        "folder__pk",
+                        flat=True,
+                    ),
+                ),
+            )
+            .select_related("parent")
+            .annotate(
+                datasets_count_annotated=Count(
+                    "uploads_dataset",
+                    filter=Q(uploads_dataset__publication_date__isnull=False),
+                    distinct=True,
+                ),
+                subfolders_count_annotated=Count("children", distinct=True),
+            )
+        )
+
+    def _save(self, serializer):
+        try:
+            serializer.save()
+        except ValidationError as e:
+            raise serializers.ValidationError(e.message_dict if hasattr(e, "error_dict") else e.messages) from e
+
+    @extend_schema(
+        responses={
+            201: SubfolderSerializer,
+        },
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self._save(serializer)
+
+        return Response(
+            SubfolderSerializer(serializer.instance).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        responses={
+            200: SubfolderSerializer,
+        },
+    )
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self._save(serializer)
+
+        return Response(
+            SubfolderSerializer(serializer.instance).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        responses={
+            200: SubfolderSerializer,
+        },
+    )
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    @extend_schema(
+        request=SubfolderMetadataPayloadSerializer,
+        responses={
+            200: SubfolderSerializer,
+        },
+    )
+    @action(
+        detail=True,
+        methods=["PUT"],
+        url_path="metadata",
+        url_name="metadata",
+        filterset_class=None,
+        pagination_class=None,
+    )
+    def metadata(self, request, *args, **kwargs):
+        """
+        Replaces the metadata of a subfolder, in the same format as the metadata of folders and files.
+        """
+        instance = self.get_object()
+        serializer = SubfolderMetadataPayloadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            with transaction.atomic():
+                set_metadata_for_relation(
+                    metadata_list=serializer.validated_data["metadata"],
+                    relation=instance,
+                )
+        except ValidationError as e:
+            raise serializers.ValidationError(
+                {"metadata": e.message_dict if hasattr(e, "error_dict") else e.messages},
+            ) from e
+
+        return Response(SubfolderSerializer(self.get_object()).data, status=status.HTTP_200_OK)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        if instance.has_datasets():
+            return Response(
+                data={
+                    "error": _("Only subfolders without files can be deleted. Please move or delete the files first."),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        instance.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)

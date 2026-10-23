@@ -4,11 +4,12 @@ from django.utils.translation import gettext_lazy as _
 from django_filters import rest_framework
 from django_userforeignkey.request import get_current_user
 
-from fdm.folders.models import Folder, FolderPermission
+from fdm.folders.models import Folder, FolderPermission, Subfolder
 
 __all__ = [
     "FolderFilter",
     "FolderPermissionFilter",
+    "SubfolderFilter",
 ]
 
 
@@ -93,3 +94,19 @@ class FolderPermissionFilter(rest_framework.FilterSet):
                 return queryset.none()
 
         return queryset
+
+
+class SubfolderFilter(rest_framework.FilterSet):
+    parent__isnull = rest_framework.BooleanFilter(
+        label=_("Filter by subfolders on the top level of the folder"),
+        field_name="parent",
+        lookup_expr="isnull",
+    )
+
+    class Meta:
+        model = Subfolder
+        fields = [
+            "folder",
+            "parent",
+            "parent__isnull",
+        ]

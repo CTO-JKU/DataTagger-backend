@@ -42,7 +42,7 @@ from fdm.file_parser.tasks import (
     prepare_uploaded_file_processing,
     schedule_configured_file_parsers_for_file,
 )
-from fdm.folders.models import Folder
+from fdm.folders.models import Folder, Subfolder
 from fdm.metadata.helpers import get_metadata_structure_for_type, set_metadata, validate_metadata
 from fdm.metadata.models import MetadataTemplateContainer
 from fdm.metadata.rest.serializers import MetadataTemplateContainerSerializer, MetadataTemplateSerializer
@@ -326,6 +326,10 @@ class UploadsDatasetViewSet(
                 "folder": serializers.UUIDField(
                     required=True,
                 ),
+                "subfolder": serializers.UUIDField(
+                    required=False,
+                    allow_null=True,
+                ),
             },
         ),
         description=_("Publishes multiple uploads datasets in bulk into a folder."),
@@ -389,6 +393,21 @@ class UploadsDatasetViewSet(
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        subfolder_pk = request.data.get("subfolder", None)
+
+        try:
+            is_valid_subfolder = not subfolder_pk or Subfolder.objects.filter(pk=subfolder_pk, folder=folder).exists()
+        except (ValueError, ValidationError):
+            is_valid_subfolder = False
+
+        if not is_valid_subfolder:
+            return Response(
+                data={
+                    "subfolder": _("The subfolder must belong to the selected folder."),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         results = {
             "success": [],
             "error": [],
@@ -396,7 +415,7 @@ class UploadsDatasetViewSet(
 
         for dataset in uploads_datasets:
             try:
-                dataset.publish(folder=folder)
+                dataset.publish(folder=folder, subfolder=subfolder_pk)
                 results["success"].append(dataset.pk)
             except Exception as e:
                 logger.error(
@@ -426,6 +445,10 @@ class UploadsDatasetViewSet(
                     required=False,
                     allow_null=False,
                 ),
+                "subfolder": serializers.UUIDField(
+                    required=False,
+                    allow_null=True,
+                ),
             },
         ),
         responses={
@@ -443,7 +466,7 @@ class UploadsDatasetViewSet(
         dataset = self.get_object()
 
         try:
-            dataset.publish(request.data.get("folder", None))
+            dataset.publish(request.data.get("folder", None), request.data.get("subfolder", None))
         except ValidationError as e:
             return Response(
                 data={

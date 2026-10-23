@@ -15,6 +15,12 @@ class UploadsDatasetMetadataIsCompleteRestFilter(rest_framework.FilterSet):
         method="filter_by_metadata_is_complete",
     )
 
+    subfolder__isnull = rest_framework.BooleanFilter(
+        label=_("Filter by datasets on the top level of the folder"),
+        field_name="subfolder",
+        lookup_expr="isnull",
+    )
+
     class Meta:
         model = UploadsDataset
         fields = "__all__"

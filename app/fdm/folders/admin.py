@@ -1,11 +1,12 @@
 from django.contrib import admin
 
 from fdm.core.helpers import format_storage_size
-from fdm.folders.models import Folder, FolderPermission
+from fdm.folders.models import Folder, FolderPermission, Subfolder
 
 __all__ = [
     "FolderAdmin",
     "FolderPermissionAdmin",
+    "SubfolderAdmin",
 ]
 
 
@@ -76,4 +77,30 @@ class FolderPermissionAdmin(admin.ModelAdmin):
         "project_membership__member__pk",
         "folder__pk",
         "folder__name",
+    ]
+
+
+@admin.register(Subfolder)
+class SubfolderAdmin(admin.ModelAdmin):
+    list_display = [
+        "name",
+        "folder",
+        "parent",
+        "created_by",
+    ]
+
+    list_filter = [
+        "folder",
+    ]
+
+    search_fields = [
+        "pk",
+        "name",
+        "folder__pk",
+        "folder__name",
+    ]
+
+    raw_id_fields = [
+        "folder",
+        "parent",
     ]
