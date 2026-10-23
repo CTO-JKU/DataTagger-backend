@@ -20,6 +20,7 @@ __all__ = [
     "get_default_folder_storage",
     "Folder",
     "FolderPermission",
+    "Subfolder",
 ]
 
 
@@ -331,3 +332,125 @@ class FolderPermission(BaseModel):
     @property
     def member(self):
         return self.project_membership.member
+
+
+class Subfolder(BaseModel, TimestampMixin, ByUserMixin):
+    """
+    An organisational subfolder within a folder. Subfolders can be nested and inherit the permissions, storage and
+    metadata templates of the folder they belong to.
+    """
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    folder = models.ForeignKey(
+        Folder,
+        blank=False,
+        null=False,
+        related_name="subfolders",
+        on_delete=models.CASCADE,
+    )
+
+    parent = models.ForeignKey(
+        "self",
+        blank=True,
+        null=True,
+        related_name="children",
+        on_delete=models.CASCADE,
+    )
+
+    name = models.CharField(
+        max_length=255,
+        blank=False,
+        null=False,
+    )
+
+    metadata = GenericRelation(
+        Metadata,
+        content_type_field="assigned_to_content_type",
+        object_id_field="assigned_to_object_id",
+    )
+
+    class Meta:
+        ordering = [
+            "name",
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["folder", "parent", "name"],
+                condition=Q(parent__isnull=False),
+                name="unique_subfolder_name_in_parent",
+                violation_error_message=_("A subfolder with this name already exists here."),
+            ),
+            models.UniqueConstraint(
+                fields=["folder", "name"],
+                condition=Q(parent__isnull=True),
+                name="unique_subfolder_name_in_folder_root",
+                violation_error_message=_("A subfolder with this name already exists here."),
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.folder.name} / {' / '.join(subfolder.name for subfolder in self.get_path())}"
+
+    def clean(self):
+        self.name = (self.name or "").strip()
+
+        if not self.name or self.name in [".", ".."] or any(char in self.name for char in "/\\"):
+            raise ValidationError({"name": _("Please provide a valid subfolder name without slashes.")})
+
+        if self.parent:
+            if self.parent.folder_id != self.folder_id:
+                raise ValidationError({"parent": _("The parent subfolder must belong to the same folder.")})
+
+            # Prevent moving a subfolder into itself or one of its own descendants
+            ancestor = self.parent
+            while ancestor:
+                if ancestor.pk == self.pk:
+                    raise ValidationError({"parent": _("A subfolder can't be moved into itself or its subfolders.")})
+                ancestor = ancestor.parent
+
+    def get_path(self) -> list["Subfolder"]:
+        """
+        Returns the list of subfolders from the top-most ancestor down to this subfolder.
+        """
+        path = []
+        subfolder = self
+        while subfolder:
+            path.insert(0, subfolder)
+            subfolder = subfolder.parent
+        return path
+
+    def get_descendant_pks(self) -> list:
+        pks = [self.pk]
+        children = list(Subfolder.objects.filter(parent__in=pks).values_list("pk", flat=True))
+        while children:
+            pks += children
+            children = list(Subfolder.objects.filter(parent__in=children).values_list("pk", flat=True))
+        return pks
+
+    def has_datasets(self) -> bool:
+        from fdm.uploads.models import UploadsDataset
+
+        return UploadsDataset.objects.filter(subfolder__in=self.get_descendant_pks()).exists()
+
+    @classmethod
+    def get_or_create_path(cls, folder: Folder, path: str, parent: "Subfolder | None" = None) -> "Subfolder | None":
+        """
+        Resolves a relative path like "10 / pdata / 1" or "10/pdata/1" below the given parent (or the folder root),
+        creating missing subfolders on the way. Returns the deepest subfolder, or the parent for an empty path.
+        """
+        segments = [segment.strip() for segment in path.replace("\\", "/").split("/")]
+
+        subfolder = parent
+        for segment in segments:
+            if not segment or segment in [".", ".."]:
+                continue
+
+            existing = cls.objects.filter(folder=folder, parent=subfolder, name=segment).first()
+            subfolder = existing or cls.objects.create(folder=folder, parent=subfolder, name=segment)
+
+        return subfolder

@@ -207,6 +207,13 @@ class CompactFolderItem(serializers.Serializer):
     project = CompactNestedPkName()
 
 
+class CompactSubfolderItem(serializers.Serializer):
+    pk = serializers.UUIDField()
+    name = serializers.CharField()
+    path = CompactNestedPkName(many=True)
+    folder = CompactFolderItem()
+
+
 class CompactDatasetItem(serializers.Serializer):
     pk = serializers.UUIDField()
     name = serializers.CharField()
@@ -270,6 +277,7 @@ CompactSearchResultItemSerializer = PolymorphicProxySerializer(
     serializers={
         "project": CompactProjectItem,
         "folder": CompactFolderItem,
+        "subfolder": CompactSubfolderItem,
         "dataset": CompactDatasetItem,
         "dataset_version": CompactDatasetVersionItem,
         "file": CompactFileItem,

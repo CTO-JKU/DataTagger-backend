@@ -4,7 +4,9 @@ from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers
 
 from fdm.core.rest.base import BaseModelSerializer
+from fdm.core.rest.permissions import can_manage_subfolders_in_folder
 from fdm.core.rest.serializers import BaseModelWithByUserSerializer
+from fdm.folders.models import Subfolder
 from fdm.folders.rest.serializers import (
     FolderBidirectionalSerializer,
     FolderSearchSerializer,
@@ -210,6 +212,7 @@ class UploadsDatasetSerializer(BaseModelWithByUserSerializer):
             "name",
             "display_name",
             "folder",
+            "subfolder",
             "metadata_template",
             "uploads_versions",
             "latest_version",
@@ -239,6 +242,18 @@ class UploadsDatasetCreatePayloadSerializer(serializers.Serializer):
         allow_null=True,
     )
 
+    subfolder = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+    )
+
+    subfolder_path = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Relative path (e.g. '10 / pdata / 1') below the subfolder. Missing subfolders are created.",
+    )
+
     # metadata_template = MetadataTemplateGetOrCreateSerializer(
     #     required=False,
     #     allow_null=True,
@@ -249,6 +264,13 @@ class UploadsDatasetCreateSerializer(BaseModelWithByUserSerializer):
     folder = FolderBidirectionalSerializer(
         required=False,
         allow_null=True,
+    )
+
+    subfolder_path = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        write_only=True,
     )
 
     metadata_template = MetadataTemplateGetOrCreateSerializer(
@@ -272,6 +294,8 @@ class UploadsDatasetCreateSerializer(BaseModelWithByUserSerializer):
         fields = [
             "name",
             "folder",
+            "subfolder",
+            "subfolder_path",
             "metadata_template",
             "uploads_versions",
             "latest_version",
@@ -281,7 +305,29 @@ class UploadsDatasetCreateSerializer(BaseModelWithByUserSerializer):
             "expiry_date",
         ]
 
+    def validate(self, attrs):
+        subfolder = attrs.get("subfolder", None)
+        folder = attrs.get("folder", None)
+
+        if (subfolder or attrs.get("subfolder_path")) and not folder:
+            raise serializers.ValidationError({"subfolder": "Subfolders can only be used for datasets in a folder."})
+
+        if subfolder and subfolder.folder_id != folder.pk:
+            raise serializers.ValidationError({"subfolder": "The subfolder must belong to the selected folder."})
+
+        return attrs
+
     def create(self, validated_data):
+        subfolder_path = validated_data.pop("subfolder_path", None)
+
+        # Recreate the directory structure of uploaded folders as subfolders
+        if subfolder_path:
+            validated_data["subfolder"] = Subfolder.get_or_create_path(
+                folder=validated_data["folder"],
+                path=subfolder_path,
+                parent=validated_data.get("subfolder", None),
+            )
+
         # TODO: Creating metadata templates for datasets can only be possible in the future,
         #  when we allow datasets without files
         # metadata_template = validated_data.get("metadata_template", None)
@@ -321,6 +367,11 @@ class UploadsDatasetUpdatePayloadSerializer(serializers.Serializer):
         allow_null=True,
     )
 
+    subfolder = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+    )
+
     metadata_template = MetadataTemplateGetOrCreateSerializer(
         required=False,
         allow_null=True,
@@ -354,6 +405,7 @@ class UploadsDatasetUpdateSerializer(BaseModelWithByUserSerializer):
         fields = [
             "name",
             "folder",
+            "subfolder",
             "metadata_template",
             "uploads_versions",
             "latest_version",
@@ -362,6 +414,15 @@ class UploadsDatasetUpdateSerializer(BaseModelWithByUserSerializer):
             "is_expired",
             "expiry_date",
         ]
+
+    def validate_subfolder(self, subfolder):
+        if subfolder and subfolder.folder_id != self.instance.folder_id:
+            raise serializers.ValidationError("The subfolder must belong to the folder of the dataset.")
+
+        if not can_manage_subfolders_in_folder(self.context["request"].user, self.instance.folder_id):
+            raise serializers.ValidationError("You are not allowed to move files within this folder.")
+
+        return subfolder
 
     def update(self, instance, validated_data):
         metadata_template = validated_data.get("metadata_template", None)
@@ -656,6 +717,7 @@ class UploadsDatasetListSerializer(BaseModelWithByUserSerializer):
             "name",
             "display_name",
             "folder",
+            "subfolder",
             "metadata_template",
             "uploads_versions",
             "latest_version",

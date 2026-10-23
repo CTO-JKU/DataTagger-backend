@@ -31,8 +31,8 @@ from django.utils.dateparse import parse_date, parse_datetime
 from django_userforeignkey.request import get_current_user
 from rest_framework import serializers
 
-from fdm.folders.models import Folder, FolderPermission
-from fdm.folders.rest.serializers import FolderSearchSerializer
+from fdm.folders.models import Folder, FolderPermission, Subfolder
+from fdm.folders.rest.serializers import FolderSearchSerializer, SubfolderSearchSerializer
 from fdm.metadata.enums import MetadataFieldType
 from fdm.metadata.models import Metadata, MetadataTemplate, MetadataTemplateContainer, MetadataTemplateField
 from fdm.metadata.rest.serializers import MetadataTemplateSearchSerializer, MetadataTemplateVersionSearchSerializer
@@ -64,6 +64,7 @@ __all__ = [
 DEFAULT_RESULT_TYPES = [
     "project",
     "folder",
+    "subfolder",
     "dataset",
     "dataset_version",
     "file",
@@ -92,6 +93,7 @@ SEARCH_CURSOR_SALT = "fdm.search.global.cursor"
 SEARCH_RESULT_SERIALIZERS = {
     "project": ProjectSearchSerializer,
     "folder": FolderSearchSerializer,
+    "subfolder": SubfolderSearchSerializer,
     "dataset": UploadsDatasetSearchSerializer,
     "dataset_version": UploadsVersionSearchSerializer,
     "file": UploadsVersionFileSearchSerializer,
@@ -224,6 +226,7 @@ ENTITY_STRING_FIELD_PATHS = {
     "name": {
         "project": "name",
         "folder": "name",
+        "subfolder": "name",
         "dataset": "name",
         "dataset_version": "name",
         "file": "uploaded_file",
@@ -233,12 +236,14 @@ ENTITY_STRING_FIELD_PATHS = {
     "project_name": {
         "project": "name",
         "folder": "project__name",
+        "subfolder": "folder__project__name",
         "dataset": "folder__project__name",
         "dataset_version": "dataset__folder__project__name",
         "file": "uploads_versions__dataset__folder__project__name",
     },
     "folder_name": {
         "folder": "name",
+        "subfolder": "folder__name",
         "dataset": "folder__name",
         "dataset_version": "dataset__folder__name",
         "file": "uploads_versions__dataset__folder__name",
@@ -272,12 +277,14 @@ ENTITY_IDENTIFIER_FIELD_PATHS = {
     "project_id": {
         "project": "pk",
         "folder": "project__pk",
+        "subfolder": "folder__project__pk",
         "dataset": "folder__project__pk",
         "dataset_version": "dataset__folder__project__pk",
         "file": "uploads_versions__dataset__folder__project__pk",
     },
     "folder_id": {
         "folder": "pk",
+        "subfolder": "folder__pk",
         "dataset": "folder__pk",
         "dataset_version": "dataset__folder__pk",
         "file": "uploads_versions__dataset__folder__pk",
@@ -970,6 +977,7 @@ def build_project_permission_predicate(result_type: str, operator: str, value) -
     values_path = {
         "project": "project_id",
         "folder": "project__folder__pk",
+        "subfolder": "project__folder__subfolders__pk",
         "dataset": "project__folder__uploads_dataset__pk",
         "dataset_version": "project__folder__uploads_dataset__uploads_versions__pk",
         "file": "project__folder__uploads_dataset__uploads_versions__version_file__pk",
@@ -988,6 +996,7 @@ def build_folder_permission_predicate(result_type: str, operator: str, value) ->
     values = value if isinstance(value, list) else [value]
     values_path = {
         "folder": "folder_id",
+        "subfolder": "folder__subfolders__pk",
         "dataset": "folder__uploads_dataset__pk",
         "dataset_version": "folder__uploads_dataset__uploads_versions__pk",
         "file": "folder__uploads_dataset__uploads_versions__version_file__pk",
@@ -1110,6 +1119,15 @@ def build_folder_search_text_query(term: str) -> Q:
         | Q(project__name__icontains=term)
         | build_metadata_text_predicate_for_model(Folder, term)
         | Q(pk__in=Subquery(matching_datasets.values("folder_id")))
+    )
+
+
+def build_subfolder_search_text_query(term: str) -> Q:
+    return (
+        Q(name__icontains=term)
+        | Q(folder__name__icontains=term)
+        | Q(folder__project__name__icontains=term)
+        | build_metadata_text_predicate_for_model(Subfolder, term)
     )
 
 
@@ -1310,6 +1328,14 @@ def build_base_queryset_folder():
     return Folder.objects.filter(folderpermission__project_membership__member=current_user if current_user.pk else None)
 
 
+def build_base_queryset_subfolder():
+    current_user = get_current_user()
+    # Without the default ordering by name, which DISTINCT would add as an extra column to the combined search query
+    return Subfolder.objects.filter(
+        folder__folderpermission__project_membership__member=current_user if current_user.pk else None,
+    ).order_by()
+
+
 def build_viewable_datasets_queryset():
     return annotate_dataset_search_fields(UploadsDataset.objects.all_viewable().distinct())
 
@@ -1427,6 +1453,20 @@ RESULT_TYPE_SPECS = {
         search_text_query_factory=build_folder_search_text_query,
         primary_search_query_factory=lambda term: Q(name__icontains=term),
         hydration_queryset_factory=lambda pks: Folder.objects.filter(pk__in=pks).select_related("project", "storage"),
+    ),
+    "subfolder": ResultTypeSpec(
+        result_type="subfolder",
+        model=Subfolder,
+        serializer_class=SubfolderSearchSerializer,
+        base_queryset_factory=build_base_queryset_subfolder,
+        search_text_query_factory=build_subfolder_search_text_query,
+        primary_search_query_factory=lambda term: Q(name__icontains=term),
+        hydration_queryset_factory=lambda pks: Subfolder.objects.filter(pk__in=pks).select_related(
+            "folder",
+            "folder__project",
+            "folder__storage",
+            "parent",
+        ),
     ),
     "dataset": ResultTypeSpec(
         result_type="dataset",
@@ -2958,12 +2998,16 @@ class SearchQueryCompiler:
             )
 
             if explicit_field_type is None:
-                if len(matching_field_types) != 1:
+                if len(matching_field_types) > 1:
                     raise serializers.ValidationError(
                         "Type-aware metadata comparisons require a single unambiguous metadata field type for the selected key.",
                     )
 
-                metadata_value_type = next(iter(matching_field_types))
+                # A key that doesn't exist for this result type can't match anything here, so it must not make the
+                # whole search fail when other selected result types (e.g. subfolders) do have it.
+                metadata_value_type = (
+                    next(iter(matching_field_types)) if matching_field_types else MetadataFieldType.TEXT
+                )
             else:
                 if matching_field_types and explicit_field_type not in matching_field_types:
                     raise serializers.ValidationError(
@@ -3302,6 +3346,21 @@ class SearchExecutor:
                 "project": {
                     "pk": str(item.project.pk) if item.project_id else None,
                     "name": item.project.name if item.project_id else None,
+                },
+            }
+
+        if result_type == "subfolder":
+            return {
+                "pk": str(item.pk),
+                "name": item.name,
+                "path": [{"pk": str(subfolder.pk), "name": subfolder.name} for subfolder in item.get_path()],
+                "folder": {
+                    "pk": str(item.folder.pk),
+                    "name": item.folder.name,
+                    "project": {
+                        "pk": str(item.folder.project.pk) if item.folder.project_id else None,
+                        "name": item.folder.project.name if item.folder.project_id else None,
+                    },
                 },
             }
 

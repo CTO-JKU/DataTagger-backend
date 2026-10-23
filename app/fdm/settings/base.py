@@ -146,6 +146,7 @@ INSTALLED_APPS = [
     "fdm.faq",
     "fdm.exports",
     "fdm.file_parser",
+    "fdm.elabftw",
     "fdm.folders",
     "fdm.metadata",
     "fdm.projects",
